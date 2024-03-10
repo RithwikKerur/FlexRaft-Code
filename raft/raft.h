@@ -31,7 +31,7 @@ enum RaftRole {
 namespace config {
 const int64_t kHeartbeatInterval = 100;         // 100ms
 const int64_t kCollectFragmentsInterval = 100;  // 100ms
-const int64_t kReplicateInterval = 1000;
+const int64_t kReplicateInterval = 20;
 const int64_t kElectionTimeoutMin = 500;  // 500ms
 constexpr int kLivenessTimeoutInterval = 200;
 const int64_t kElectionTimeoutMax = 1000;  // 800ms
@@ -304,6 +304,69 @@ class RaftState {
     raft_node_id_t recover_node;
     int entry_cnt;  // Number of entries to be recovered
     uint32_t dura;
+  };
+
+  struct BandwidthMonitor {
+    // Gather the data for every 100 call
+    static constexpr size_t TimeWindowSize = 100;
+
+    std::unordered_map<raft_node_id_t, double> disk_bw;
+    std::unordered_map<raft_node_id_t, double> net_bw;
+
+    // The bandwidth estimation results within a time window
+    std::unordered_map<raft_node_id_t, std::vector<double>> disk_window_bw;
+    std::unordered_map<raft_node_id_t, std::vector<double>> net_window_bw;
+
+    BandwidthMonitor() : disk_bw(), net_bw(), disk_window_bw(), net_window_bw() {}
+
+    void AddNetBandwidthRecord(raft_node_id_t id, double bw) {
+      auto it = net_window_bw.find(id);
+      if (it == net_window_bw.end()) [[unlikely]] {
+        net_window_bw.insert({id, {bw}});
+      } else {
+        it->second.push_back(bw);
+      }
+    }
+
+    void AddDiskBandwidthRecord(raft_node_id_t id, double bw) {
+      auto it = disk_window_bw.find(id);
+      if (it == disk_window_bw.end()) [[unlikely]] {
+        disk_window_bw.insert({id, {bw}});
+      } else {
+        it->second.push_back(bw);
+      }
+    }
+
+    // Predict the network bandwidth for a specific node
+    double PredictNetBandwidth(raft_node_id_t id) const {
+      auto it = net_bw.find(id);
+      // return the summative results of last time window
+      if (it != net_bw.end()) {
+        return it->second;
+      } else {
+        // No summation yet, return the bandwidth of last record directly
+        auto it2 = net_window_bw.find(id);
+        if (it2 != net_window_bw.end()) {
+          return it2->second.back();
+        }
+      }
+      return -1;  // No estimation results yet
+    }
+
+    double PredictDiskBandwidth(raft_node_id_t id) const {
+      auto it = disk_bw.find(id);
+      // return the summative results of last time window
+      if (it != disk_bw.end()) {
+        return it->second;
+      } else {
+        // No summation yet, return the bandwidth of last record directly
+        auto it2 = disk_window_bw.find(id);
+        if (it2 != disk_window_bw.end()) {
+          return it2->second.back();
+        }
+      }
+      return -1;  // No estimation results yet
+    }
   };
 
  public:

@@ -143,14 +143,14 @@ void RunRaftLeader(raft_node_id_t id, const NodesConfig &configs, int data_size,
   auto data = GenerateRandomSlice(data_size, data_size);
   for (int i = 1; i <= propose_cnt; ++i) {
     // First set the liveness number to be N
-    leader->SetLivenessNumber(7);
+    leader->SetLivenessNumber(6);
 
     auto start = util::NowTime();
     auto pr = leader->Propose(CommandData{0, data});
     assert(pr.is_leader == true);
 
     // Set the Liveness number to be N - 1 so that the next round can send the reserved chunks
-    leader->SetLivenessNumber(6);
+    leader->SetLivenessNumber(5);
 
     // Loop until this entry is committed
     while (leader->CommitIndex() < pr.propose_index) {

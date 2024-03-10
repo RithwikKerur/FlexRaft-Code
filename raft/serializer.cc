@@ -135,6 +135,8 @@ void Serializer::Serialize(const AppendEntriesReply *reply, RCF::ByteBuffer *buf
     std::memcpy(dst, &chunk_info, sizeof(ChunkInfo));
     dst += sizeof(ChunkInfo);
   }
+  std::memcpy(dst, &(reply->follower_perf), sizeof(AppendEntriesFollowerPerf));
+  dst += sizeof(AppendEntriesFollowerPerf);
 }
 
 void Serializer::Deserialize(const RCF::ByteBuffer *buffer, AppendEntriesReply *reply) {
@@ -147,6 +149,8 @@ void Serializer::Deserialize(const RCF::ByteBuffer *buffer, AppendEntriesReply *
     src += sizeof(ChunkInfo);
     reply->chunk_infos.push_back(ci);
   }
+  std::memcpy(&(reply->follower_perf), src, sizeof(AppendEntriesFollowerPerf));
+  src += sizeof(AppendEntriesFollowerPerf);
 }
 
 void Serializer::Serialize(const RequestFragmentsArgs *args, RCF::ByteBuffer *buffer) {
@@ -261,6 +265,7 @@ size_t Serializer::getSerializeSize(const AppendEntriesArgs &args) {
 size_t Serializer::getSerializeSize(const AppendEntriesReply &reply) {
   size_t ret = kAppendEntriesReplyHdrSize;
   ret += reply.chunk_info_cnt * sizeof(ChunkInfo);
+  ret += sizeof(AppendEntriesFollowerPerf);
   return ret;
 }
 

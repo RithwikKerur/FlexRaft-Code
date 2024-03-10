@@ -288,9 +288,12 @@ void SerializerTest::TestSerializeAppendEntriesReply(bool async) {
       rand(),
       static_cast<raft_index_t>(rand()),
       static_cast<raft_node_id_t>(rand()),
-      0,  // padding
-      3,
-      {GenerateRandomChunkInfo(), GenerateRandomChunkInfo(), GenerateRandomChunkInfo()}};
+      /* padding = */ 0,
+      /* chunk_info_cnt =  */ 3,
+      /* chunk_infos = */
+      {GenerateRandomChunkInfo(), GenerateRandomChunkInfo(), GenerateRandomChunkInfo()},
+      /* follower_per = */ {1024, 1000, 100},
+  };
 
   auto cmp = [](const AppendEntriesReply &lhs, const AppendEntriesReply &rhs) -> bool {
     bool hdr_eq = lhs.reply_id == rhs.reply_id && lhs.success == rhs.success &&
@@ -300,6 +303,11 @@ void SerializerTest::TestSerializeAppendEntriesReply(bool async) {
     if (lhs.chunk_infos.size() != rhs.chunk_infos.size()) {
       return false;
     }
+
+    if (lhs.follower_perf != rhs.follower_perf) {
+      return false;
+    }
+
     for (int i = 0; i < lhs.chunk_infos.size(); ++i) {
       if (!(lhs.chunk_infos[i] == rhs.chunk_infos[i])) {
         return false;
@@ -362,7 +370,7 @@ void SerializerTest::TestSerializeRequestFragmentsReply(bool async) {
 void SerializerTest::TestSerializeDeleteSubChunkArgs(bool async) {
   DeleteSubChunksArgs args =
       DeleteSubChunksArgs{static_cast<raft_term_t>(rand()), static_cast<raft_index_t>(rand()),
-                          static_cast<raft_index_t>(rand()), static_cast<int>(rand())};
+                          static_cast<raft_index_t>(rand()), static_cast<raft_node_id_t>(rand())};
 
   auto cmp = [](const DeleteSubChunksArgs &a, const DeleteSubChunksArgs &b) -> bool {
     return a.term == b.term && a.start_index == b.start_index && a.last_index == b.last_index &&
@@ -411,9 +419,9 @@ TEST_F(SerializerTest, TestSerializeAsync) {
   // TestSerializeRequestVoteArgs(true);
   // TestSerializeRequestVoteReply(true);
   // TestSerializeAppendEntriesArgs(true);
-  // TestSerializeAppendEntriesReply(true);
-  // TestSerializeRequestFragmentsArgs(true);
-  // TestSerializeRequestFragmentsReply(true);
+  TestSerializeAppendEntriesReply(true);
+  TestSerializeRequestFragmentsArgs(true);
+  TestSerializeRequestFragmentsReply(true);
   TestSerializeDeleteSubChunkArgs(true);
   TestSerializeDeleteSubChunkReply(true);
 }

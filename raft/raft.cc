@@ -155,6 +155,8 @@ void RaftState::Process(AppendEntriesArgs *args, AppendEntriesReply *reply) {
       id_, args->leader_id, args->term, args->prev_log_index, args->prev_log_term, args->prev_k,
       args->entries.size(), args->leader_commit);
 
+  util::Timer cpu_timer, disk_timer;
+
   reply->reply_id = id_;
   reply->chunk_info_cnt = 0;
 
@@ -165,6 +167,7 @@ void RaftState::Process(AppendEntriesArgs *args, AppendEntriesReply *reply) {
     reply->expect_index = 0;
     LOG(util::kRaft, "S%d reply to S%d with T%d EI%d", id_, args->leader_id, reply->term,
         reply->expect_index);
+    reply->follower_perf.cpu_time = cpu_timer.ElapseMicroseconds();
     return;
   }
 
@@ -184,6 +187,7 @@ void RaftState::Process(AppendEntriesArgs *args, AppendEntriesReply *reply) {
     // reply->expect_index = args->prev_log_index;
     reply->expect_index = std::min(lm_->LastLogEntryIndex() + 1, args->prev_log_index);
     LOG(util::kRaft, "S%d reply with expect index=%d", id_, reply->expect_index);
+    reply->follower_perf.cpu_time = cpu_timer.ElapseMicroseconds();
     return;
   }
 
@@ -232,6 +236,8 @@ void RaftState::ProcessCodeConversion(AppendEntriesArgs *args, AppendEntriesRepl
   reply->reply_id = id_;
   reply->chunk_info_cnt = 0;
 
+  util::Timer cpu_timer;
+
   // Reply false immediately if arguments' term is smaller
   if (args->term < CurrentTerm()) {
     reply->success = false;
@@ -239,6 +245,7 @@ void RaftState::ProcessCodeConversion(AppendEntriesArgs *args, AppendEntriesRepl
     reply->expect_index = 0;
     LOG(util::kRaft, "[CC] S%d reply to S%d with T%d EI%d", id_, args->leader_id, reply->term,
         reply->expect_index);
+    reply->follower_perf.cpu_time = cpu_timer.ElapseMicroseconds();
     return;
   }
 
@@ -258,6 +265,7 @@ void RaftState::ProcessCodeConversion(AppendEntriesArgs *args, AppendEntriesRepl
     // reply->expect_index = args->prev_log_index;
     reply->expect_index = std::min(lm_->LastLogEntryIndex() + 1, args->prev_log_index);
     LOG(util::kRaft, "[CC] S%d reply with expect index=%d", id_, reply->expect_index);
+    reply->follower_perf.cpu_time = cpu_timer.ElapseMicroseconds();
     return;
   }
 
@@ -856,6 +864,12 @@ void RaftState::CheckConflictEntryAndAppendNewCodeConversion(AppendEntriesArgs *
   auto old_idx = lm_->LastLogEntryIndex();
   auto array_index = 0;
 
+  reply->follower_perf.disk_time = 0;
+  reply->follower_perf.payload_sz = 0;
+
+  auto ser = Serializer::NewSerializer();
+  util::Timer disk_timer;
+
   for (; array_index < args->entries.size(); ++array_index) {
     auto raft_index = array_index + args->prev_log_index + 1;
     if (raft_index > lm_->LastLogEntryIndex()) {
@@ -890,10 +904,16 @@ void RaftState::CheckConflictEntryAndAppendNewCodeConversion(AppendEntriesArgs *
       reserve_entry.SetFragmentSlice(Slice(nullptr, 0));
       reserve_lm_->OverWriteLogEntry(reserve_entry, raft_index);
       if (!do_overwrite) {
-        if (reserve_storage_) reserve_storage_->OverwriteEntry(raft_index, reserve_entry);
+        if (reserve_storage_) {
+          reserve_storage_->OverwriteEntry(raft_index, reserve_entry);
+          reply->follower_perf.payload_sz += ser.getSerializeSize(reserve_entry);
+        }
         do_overwrite = true;
       } else {
-        if (reserve_storage_) reserve_storage_->AppendEntry(reserve_entry);
+        if (reserve_storage_) {
+          reserve_storage_->AppendEntry(reserve_entry);
+          reply->follower_perf.payload_sz += ser.getSerializeSize(reserve_entry);
+        }
       }
       LOG(util::kRaft, "[CC] S%d OVERWRITE I%d ConflictIndex=I%d", id_, raft_index, raft_index);
       // Need to overwrite the K parameter of this entry stored in this log manager
@@ -922,6 +942,9 @@ void RaftState::CheckConflictEntryAndAppendNewCodeConversion(AppendEntriesArgs *
     if (storage_) storage_->AppendEntry(org_entry);
     if (reserve_storage_) reserve_storage_->AppendEntry(reserve_entry);
 
+    reply->follower_perf.payload_sz += ser.getSerializeSize(org_entry);
+    reply->follower_perf.payload_sz += ser.getSerializeSize(reserve_entry);
+
     auto reply_chunk_info = args->entries[i].GetChunkInfo();
     reply_chunk_info.contain_original = true;
     LOG(util::kRaft, "[CC] S%d APPEND I%d OrgChunk(%dB) ReserveChunks(%d)", id_, raft_index,
@@ -940,6 +963,8 @@ void RaftState::CheckConflictEntryAndAppendNewCodeConversion(AppendEntriesArgs *
   if (reserve_storage_) {
     // reserve_storage_->Sync();
   }
+
+  reply->follower_perf.disk_time = disk_timer.ElapseMicroseconds();
 
   assert(lm_->LastLogEntryIndex() == reserve_lm_->LastLogEntryIndex());
 }

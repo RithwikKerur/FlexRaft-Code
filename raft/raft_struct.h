@@ -23,6 +23,21 @@ struct RequestVoteReply {
   raft_node_id_t reply_id;
 };
 
+// The performance breakdown of AppendEntries RPC call
+struct AppendEntriesFollowerPerf {
+  uint32_t payload_sz;
+  double disk_time;  // Time(us) spent on flushing entries to disk
+  double cpu_time;   // Time(us) spent on CPU processing
+
+  friend bool operator==(const AppendEntriesFollowerPerf& l, const AppendEntriesFollowerPerf& r) {
+    return l.payload_sz == r.payload_sz && l.disk_time == r.disk_time & l.cpu_time == r.cpu_time;
+  }
+
+  friend bool operator!=(const AppendEntriesFollowerPerf& l, const AppendEntriesFollowerPerf& r) {
+    return !(l == r);
+  }
+};
+
 struct AppendEntriesArgs {
   // Leader's term when sending this AppendEntries RPC.
   raft_term_t term;
@@ -61,6 +76,9 @@ struct AppendEntriesReply {
 
   int chunk_info_cnt;
   std::vector<ChunkInfo> chunk_infos;
+
+  // Performance counter for one specific AppendEntries RPC call
+  AppendEntriesFollowerPerf follower_perf;
 };
 
 struct RequestFragmentsArgs {
