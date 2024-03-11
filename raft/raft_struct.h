@@ -25,12 +25,14 @@ struct RequestVoteReply {
 
 // The performance breakdown of AppendEntries RPC call
 struct AppendEntriesFollowerPerf {
-  uint32_t payload_sz;
+  uint32_t storage_sz;
+  uint32_t arg_sz;
   double disk_time;  // Time(us) spent on flushing entries to disk
   double cpu_time;   // Time(us) spent on CPU processing
+  double net_time;   // Time(us) spent on networking
 
   friend bool operator==(const AppendEntriesFollowerPerf& l, const AppendEntriesFollowerPerf& r) {
-    return l.payload_sz == r.payload_sz && l.disk_time == r.disk_time & l.cpu_time == r.cpu_time;
+    return l.storage_sz == r.storage_sz && l.disk_time == r.disk_time & l.cpu_time == r.cpu_time;
   }
 
   friend bool operator!=(const AppendEntriesFollowerPerf& l, const AppendEntriesFollowerPerf& r) {

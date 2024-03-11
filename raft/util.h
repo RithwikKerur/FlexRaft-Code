@@ -5,6 +5,7 @@
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
+#include <sys/time.h>
 
 #include <chrono>
 #include <cstdio>
@@ -15,6 +16,17 @@
 
 namespace raft {
 namespace util {
+
+// bw: xxx MiB/s
+// return: num of microseconds to finish this data
+inline uint64_t SizeToTime(size_t dsize, double bw) {
+  return (double)dsize / (bw * (1 << 20)) * 1e6;
+}
+
+inline double SizeToBandwidth(size_t dsize, uint64_t us) {
+  return (double)dsize / (1 << 20) * 1e6 / us;
+}
+
 using TimePoint = decltype(std::chrono::high_resolution_clock::now());
 using std::chrono::microseconds;
 using std::chrono::milliseconds;
@@ -199,6 +211,12 @@ inline std::string MakeValue(uint64_t value_id, size_t value_size) {
 }
 
 inline TimePoint NowTime() { return std::chrono::high_resolution_clock::now(); }
+
+inline uint64_t NowMicro() {
+  struct timeval tv;
+  gettimeofday(&tv, nullptr);
+  return tv.tv_sec * 1000000 + tv.tv_usec;
+}
 
 inline int64_t DurationToMicros(TimePoint start, TimePoint end) {
   return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();

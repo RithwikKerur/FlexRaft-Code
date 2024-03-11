@@ -74,6 +74,24 @@ class RaftNode {
 
   bool IsLeader() { return raft_state_->Role() == kLeader; }
 
+  void ThrottleDiskBandwidth(double bw) {
+    if (storage_) storage_->ThrottleBandwidth(bw);
+    if (reserve_storage_) reserve_storage_->ThrottleBandwidth(bw);
+  }
+
+  void UnthrottleDiskBandwidth() {
+    if (storage_) storage_->UnThrottleBandwidth();
+    if (reserve_storage_) reserve_storage_->UnThrottleBandwidth();
+  }
+
+  void ThrottleNetworkBandwidth(raft_node_id_t id, double bw) {
+    raft_state_->rpc_clients_[id]->ThrottleBandwidth(bw);
+  }
+
+  void UnThrottleNetworkBandwidth(raft_node_id_t id) {
+    raft_state_->rpc_clients_[id]->UnThrottleBandwidth();
+  }
+
  private:
   void startTickerThread();
   void startApplierThread();

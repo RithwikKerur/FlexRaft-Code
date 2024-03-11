@@ -20,6 +20,7 @@ struct NetAddress {
 class RpcClient {
  public:
   virtual ~RpcClient() = default;
+
   // Do all initialization work, for example, bind to remote target server
   virtual void Init() = 0;
   virtual void sendMessage(const RequestVoteArgs &args) = 0;
@@ -27,10 +28,18 @@ class RpcClient {
   virtual void sendMessage(const RequestFragmentsArgs &args) = 0;
   virtual void sendMessage(const DeleteSubChunksArgs &args) = 0;
   virtual void setState(void *state) = 0;
+
   // Temporarily shut down this client stub. After calling this method, any
   // sendMessage() call would not work unless a recover() is called
   virtual void stop() = 0;
   virtual void recover() = 0;
+
+  virtual void ThrottleBandwidth(double bw) { max_bw_ = bw; }
+
+  virtual void UnThrottleBandwidth() { max_bw_ = -1; }
+
+ protected:
+  double max_bw_ = -1;  // The maximum network bandwidth to use, -1 means no throttle
 };
 
 // An interface for receiving rpc request and deals with it

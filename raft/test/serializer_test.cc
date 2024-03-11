@@ -292,7 +292,7 @@ void SerializerTest::TestSerializeAppendEntriesReply(bool async) {
       /* chunk_info_cnt =  */ 3,
       /* chunk_infos = */
       {GenerateRandomChunkInfo(), GenerateRandomChunkInfo(), GenerateRandomChunkInfo()},
-      /* follower_per = */ {1024, 1000, 100},
+      /* follower_per = */ {1024, 1024, 1000, 100, 1000},
   };
 
   auto cmp = [](const AppendEntriesReply &lhs, const AppendEntriesReply &rhs) -> bool {
@@ -413,12 +413,12 @@ TEST_F(SerializerTest, DISABLED_TestSerializeSync) {
 
 TEST_F(SerializerTest, TestSerializeAsync) {
   LaunchServerThread();
-  // TestNoDataLogEntryTransfer(true);
-  // TestCompleteCommandDataLogEntryTransfer(true);
-  // TestFragmentDataLogEntryTransfer(true);
-  // TestSerializeRequestVoteArgs(true);
-  // TestSerializeRequestVoteReply(true);
-  // TestSerializeAppendEntriesArgs(true);
+  TestNoDataLogEntryTransfer(true);
+  TestCompleteCommandDataLogEntryTransfer(true);
+  TestFragmentDataLogEntryTransfer(true);
+  TestSerializeRequestVoteArgs(true);
+  TestSerializeRequestVoteReply(true);
+  TestSerializeAppendEntriesArgs(true);
   TestSerializeAppendEntriesReply(true);
   TestSerializeRequestFragmentsArgs(true);
   TestSerializeRequestFragmentsReply(true);

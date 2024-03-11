@@ -4,10 +4,12 @@
 #include <unistd.h>
 
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <ios>
+#include <thread>
 
 #include "util.h"
 
@@ -98,7 +100,8 @@ void FileStorage::LogEntries(std::vector<LogEntry> *entries) {
 }
 
 void FileStorage::AppendEntry(const LogEntry &ent) {
-  LOG(util::kRaft, "Storage: AppendEntry I%d", ent.Index());
+  // LOG(util::kRaft, "Storage: AppendEntry I%d", ent.Index());
+  util::Timer timer;
   if (ent.Index() != header_.lastLogIndex + 1) {
     return;
   }
@@ -112,6 +115,14 @@ void FileStorage::AppendEntry(const LogEntry &ent) {
   Append(this->buf_, write_size);
   MaybeUpdateLastIndexAndTerm(ent.Index(), ent.Term());
   UpdateExtents(ent.Index(), extent);
+
+  auto wr_time = timer.ElapseMicroseconds();
+  if (max_bw_ != -1) {
+    auto throttled_time = util::SizeToTime(write_size, max_bw_);
+    if (throttled_time - wr_time > 1000) {  // Greater than 1ms
+      std::this_thread::sleep_for(std::chrono::microseconds((int64_t)throttled_time - wr_time));
+    }
+  }
 }
 
 void FileStorage::DeleteEntriesFrom(raft_index_t raft_index) {

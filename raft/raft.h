@@ -1,5 +1,6 @@
 #pragma once
 #include <chrono>
+#include <cmath>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -31,7 +32,7 @@ enum RaftRole {
 namespace config {
 const int64_t kHeartbeatInterval = 100;         // 100ms
 const int64_t kCollectFragmentsInterval = 100;  // 100ms
-const int64_t kReplicateInterval = 20;
+const int64_t kReplicateInterval = 200;    // 
 const int64_t kElectionTimeoutMin = 500;  // 500ms
 constexpr int kLivenessTimeoutInterval = 200;
 const int64_t kElectionTimeoutMax = 1000;  // 800ms
@@ -307,8 +308,14 @@ class RaftState {
   };
 
   struct BandwidthMonitor {
+    struct BwProp {
+      double bw;
+      double prop;
+
+      BwProp(double bw, double prop) : bw(bw), prop(prop) {}
+    };
     // Gather the data for every 100 call
-    static constexpr size_t TimeWindowSize = 100;
+    static constexpr size_t kTimeWindowSize = 100;
 
     std::unordered_map<raft_node_id_t, double> disk_bw;
     std::unordered_map<raft_node_id_t, double> net_bw;
@@ -319,21 +326,94 @@ class RaftState {
 
     BandwidthMonitor() : disk_bw(), net_bw(), disk_window_bw(), net_window_bw() {}
 
+    std::vector<BwProp> SimpleClustering(const std::vector<double> &input) {
+      double sum = 0, sum_sq = 0;
+      size_t n = 0;
+      static const double alpha = 0.3;
+      std::vector<BwProp> ret;
+
+      for (size_t i = 0; i < input.size(); ++i) {
+        sum += input[i];
+        sum_sq += (input[i] * input[i]);
+        n += 1;
+
+        // Calculate the standard deviation:
+        double stddev = std::sqrt((sum_sq - sum * sum / n) / n);
+        if (stddev >= sum / n * alpha) {
+          ret.push_back({(sum - input[i]) / (n - 1), double(n - 1) / input.size()});
+          sum = input[i];
+          sum_sq = input[i] * input[i];
+          n = 1;
+        }
+      }
+
+      // Push the final results
+      ret.push_back({sum / n, double(n) / input.size()});
+
+      // Filter the results: remove all records with only less than 0.05 occurrency
+      auto it = ret.begin();
+      while (it != ret.end()) {
+        if (it->prop < 0.05) {
+          it = ret.erase(it);
+        } else {
+          ++it;
+        }
+      }
+      return ret;
+    }
+
+    // Update the summative results with respect to the last time window for a specific node
+    void UpdateDiskSummativeBandwidth(raft_node_id_t id) {
+      // ------------- Update Disk Bandwidth monitoring -------- //
+      auto disk_bw_prop = SimpleClustering(disk_window_bw[id]);
+      double disk_bw_pred = 0.0;
+      for (const auto &t : disk_bw_prop) {
+        disk_bw_pred += (t.prop * t.bw);
+      }
+      disk_bw[id] = disk_bw_pred;
+      printf("Update S%d disk bandwidth with %.2lf MiB/s\n", id, disk_bw[id]);
+    }
+
+    void UpdateNetworkSummativeBandwidth(raft_node_id_t id) {
+      // ------------- Update Network Bandwidth monitoring -------- //
+      auto net_bw_prop = SimpleClustering(net_window_bw[id]);
+      double net_bw_pred = 0.0;
+      for (const auto &t : net_bw_prop) {
+        net_bw_pred += (t.prop * t.bw);
+      }
+      // for (const auto& t : net_bw_prop) {
+      //   printf("{%.2lf : %.2lf}, ", t.bw, t.prop);
+      // }
+      puts("");
+      net_bw[id] = net_bw_pred;
+      printf("Update S%d network bandwidth with %.2lf MiB/s\n", id, net_bw[id]);
+    }
+
     void AddNetBandwidthRecord(raft_node_id_t id, double bw) {
+      LOG(util::kRaft, "Add S%d network bandwidth %.2lf MiB/s", id, bw);
       auto it = net_window_bw.find(id);
       if (it == net_window_bw.end()) [[unlikely]] {
         net_window_bw.insert({id, {bw}});
       } else {
         it->second.push_back(bw);
       }
+      if (net_window_bw[id].size() >= kTimeWindowSize) {
+        UpdateNetworkSummativeBandwidth(id);
+        net_window_bw[id].clear();
+      }
     }
 
     void AddDiskBandwidthRecord(raft_node_id_t id, double bw) {
+      LOG(util::kRaft, "Add S%d disk bandwidth %.2lf MiB/s", id, bw);
       auto it = disk_window_bw.find(id);
       if (it == disk_window_bw.end()) [[unlikely]] {
         disk_window_bw.insert({id, {bw}});
       } else {
         it->second.push_back(bw);
+      }
+      if (disk_window_bw[id].size() >= kTimeWindowSize) {
+        UpdateDiskSummativeBandwidth(id);
+        disk_window_bw[id].clear();
       }
     }
 
@@ -341,12 +421,12 @@ class RaftState {
     double PredictNetBandwidth(raft_node_id_t id) const {
       auto it = net_bw.find(id);
       // return the summative results of last time window
-      if (it != net_bw.end()) {
+      if (it != net_bw.end()) [[likely]] {
         return it->second;
       } else {
         // No summation yet, return the bandwidth of last record directly
         auto it2 = net_window_bw.find(id);
-        if (it2 != net_window_bw.end()) {
+        if (it2 != net_window_bw.end()) [[likely]] {
           return it2->second.back();
         }
       }
@@ -356,7 +436,7 @@ class RaftState {
     double PredictDiskBandwidth(raft_node_id_t id) const {
       auto it = disk_bw.find(id);
       // return the summative results of last time window
-      if (it != disk_bw.end()) {
+      if (it != disk_bw.end()) [[likely]] {
         return it->second;
       } else {
         // No summation yet, return the bandwidth of last record directly
@@ -716,6 +796,8 @@ class RaftState {
   std::vector<RecoveryRecord> recover_records_;
 
   int alive_servers_of_last_point_;
+
+  BandwidthMonitor bw_monitor_;
 
  private:
   int vote_me_cnt_;

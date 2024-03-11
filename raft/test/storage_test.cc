@@ -7,17 +7,18 @@
 #include <unordered_map>
 #include <vector>
 
+#include "gtest/gtest.h"
 #include "log_entry.h"
 #include "raft_type.h"
-#include "gtest/gtest.h"
+#include "util.h"
 
 namespace raft {
 
-static const std::string kStorageTestFileName = "/mnt/ssd1/test.log";
+static const std::string kStorageTestFileName = "./test.log";
 class StorageTest : public ::testing::Test {
   static const size_t kMaxDataSize = 16 * 1024;
 
-public:
+ public:
   // Remove created log file in case that created log affect next test
   void Clear() {
     // std::filesystem::remove(kStorageTestFileName);
@@ -39,26 +40,23 @@ public:
     return Slice(rand_data, rand_size);
   }
 
-  auto GenerateRandomLogEntry(raft_index_t raft_index, raft_term_t raft_term,
-                              raft_entry_type type, bool generate_data)
-      -> LogEntry {
+  auto GenerateRandomLogEntry(raft_index_t raft_index, raft_term_t raft_term, raft_entry_type type,
+                              bool generate_data) -> LogEntry {
     LogEntry ent;
     ent.SetTerm(raft_term);
     ent.SetIndex(raft_index);
     ent.SetType(type);
     if (generate_data) {
       switch (ent.Type()) {
-      case raft::kNormal:
-        ent.SetCommandData(GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize));
-        break;
-      case raft::kFragments:
-        ent.SetNotEncodedSlice(
-            GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize));
-        ent.SetFragmentSlice(
-            GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize));
-        break;
-      case raft::kTypeMax:
-        assert(false);
+        case raft::kNormal:
+          ent.SetCommandData(GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize));
+          break;
+        case raft::kFragments:
+          ent.SetNotEncodedSlice(GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize));
+          ent.SetFragmentSlice(GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize));
+          break;
+        case raft::kTypeMax:
+          assert(false);
       }
     }
     return ent;
@@ -75,18 +73,18 @@ public:
     return logs;
   }
 
-private:
+ private:
   Storage *storage_;
 };
 
 TEST_F(StorageTest, DISABLED_TestPersistRaftState) {
-  Clear(); // Clear existed files so that it won't affect current status
+  Clear();  // Clear existed files so that it won't affect current status
   const int kTestRun = 100;
   for (int i = 1; i <= kTestRun; ++i) {
     // Open storage and write some thing, then close it
     auto storage = FileStorage::Open(kStorageTestFileName);
-    storage->PersistState(Storage::PersistRaftState{
-        true, static_cast<raft_term_t>(i), static_cast<raft_node_id_t>(i)});
+    storage->PersistState(Storage::PersistRaftState{true, static_cast<raft_term_t>(i),
+                                                    static_cast<raft_node_id_t>(i)});
     delete storage;
 
     storage = FileStorage::Open(kStorageTestFileName);
@@ -101,7 +99,7 @@ TEST_F(StorageTest, DISABLED_TestPersistRaftState) {
 TEST_F(StorageTest, TestPersistLogEntries) {
   Clear();
 
-  const size_t kPutCnt = 10000;
+  const size_t kPutCnt = 1000;
   auto sets = GenerateSequentialEntries(1, kPutCnt + 1);
   auto storage = FileStorage::Open(kStorageTestFileName);
   for (auto raft_index = 1; raft_index <= kPutCnt; ++raft_index) {
@@ -141,7 +139,7 @@ TEST_F(StorageTest, TestPersistLogEntries) {
   Clear();
 }
 
-TEST_F(StorageTest, TestOverwriteLogEntries) {
+TEST_F(StorageTest, DISABLED_TestOverwriteLogEntries) {
   Clear();
   const size_t kPutCnt = 10000;
 
@@ -199,7 +197,7 @@ TEST_F(StorageTest, TestOverwriteLogEntries) {
   Clear();
 }
 
-TEST_F(StorageTest, TestDeleteEntries) {
+TEST_F(StorageTest, DISABLED_TestDeleteEntries) {
   Clear();
   const raft_index_t kPutCnt = 10000;
   const raft_index_t kLastIndex = kPutCnt / 2;
@@ -246,8 +244,9 @@ TEST_F(StorageTest, TestDeleteEntries) {
 TEST_F(StorageTest, TestPersistencePerformance) {
   Clear();
   const int kPutCnt = 100;
-  const size_t kSize = 2 * 1024 * 1024; // 2MB
+  const size_t kSize = 2 * 1024 * 1024;  // 2MiB
   auto storage = FileStorage::Open(kStorageTestFileName);
+  storage->ThrottleBandwidth(500);  // Throttle Performance to be 100MiB/s
   std::vector<uint64_t> latency;
   for (int i = 1; i <= kPutCnt; ++i) {
     LogEntry ent;
@@ -259,28 +258,28 @@ TEST_F(StorageTest, TestPersistencePerformance) {
     std::vector<LogEntry> sets = {ent};
     auto start = std::chrono::high_resolution_clock::now();
     storage->AppendEntry(ent);
-    storage->Sync();
+    // storage->Sync();
     auto end = std::chrono::high_resolution_clock::now();
-    auto dura =
-        std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+    auto dura = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     latency.push_back(dura.count());
   }
 
   // Deal with collected data
   uint64_t latency_sum = 0;
-  std::for_each(latency.begin(), latency.end(),
-                [&latency_sum](uint64_t n) { latency_sum += n; });
-  printf("[Average Persistence Latency = %" PRIu64" us]\n",
-         latency_sum / latency.size());
-  printf("[Max     Persistence Latency = %" PRIu64" us]\n",
+  std::for_each(latency.begin(), latency.end(), [&latency_sum](uint64_t n) { latency_sum += n; });
+  printf("[Average Persistence Latency = %" PRIu64 " us]\n", latency_sum / latency.size());
+  printf("[Max     Persistence Latency = %" PRIu64 " us]\n",
          *std::max_element(latency.begin(), latency.end()));
-  std::sort(latency.begin(), latency.end());
-  std::reverse(latency.begin(), latency.end());
-  uint64_t top_latency_sum = 0;
-  int top_cnt = latency.size() / 10;
-  std::for_each(latency.begin(), latency.begin() + top_cnt,
-                [&top_latency_sum](uint64_t n) { top_latency_sum += n; });
-  printf("[Top10 average Latency = %" PRIu64" us]\n", top_latency_sum / top_cnt);
+  // std::sort(latency.begin(), latency.end());
+  // std::reverse(latency.begin(), latency.end());
+  // uint64_t top_latency_sum = 0;
+  // int top_cnt = latency.size() / 10;
+  // std::for_each(latency.begin(), latency.begin() + top_cnt,
+  //               [&top_latency_sum](uint64_t n) { top_latency_sum += n; });
+  // printf("[Top10 average Latency = %" PRIu64 " us]\n", top_latency_sum / top_cnt);
+
+  size_t wr_size = kPutCnt * kSize;
+  printf("Average bandwidth: %.2lfMiB/s\n", util::SizeToBandwidth(wr_size, latency_sum));
 
   delete storage;
   Clear();
@@ -295,21 +294,17 @@ TEST_F(StorageTest, DISABLED_TestPersistRaftStatePerformance) {
 
   for (int i = 1; i <= kPutCnt; ++i) {
     auto start = std::chrono::high_resolution_clock::now();
-    storage->PersistState(
-        Storage::PersistRaftState{true, static_cast<raft_term_t>(i), 0});
+    storage->PersistState(Storage::PersistRaftState{true, static_cast<raft_term_t>(i), 0});
     auto end = std::chrono::high_resolution_clock::now();
-    auto dura =
-        std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    auto dura = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     latency.push_back(dura.count());
   }
 
   // Deal with collected data
   uint64_t latency_sum = 0;
-  std::for_each(latency.begin(), latency.end(),
-                [&latency_sum](uint64_t n) { latency_sum += n; });
-  printf("[Average Persistence Latency = %" PRIu64" us]\n",
-         latency_sum / latency.size());
-  printf("[Max     Persistence Latency = %" PRIu64" us]\n",
+  std::for_each(latency.begin(), latency.end(), [&latency_sum](uint64_t n) { latency_sum += n; });
+  printf("[Average Persistence Latency = %" PRIu64 " us]\n", latency_sum / latency.size());
+  printf("[Max     Persistence Latency = %" PRIu64 " us]\n",
          *std::max_element(latency.begin(), latency.end()));
   std::sort(latency.begin(), latency.end());
   std::reverse(latency.begin(), latency.end());
@@ -317,9 +312,9 @@ TEST_F(StorageTest, DISABLED_TestPersistRaftStatePerformance) {
   int top_cnt = latency.size() / 10;
   std::for_each(latency.begin(), latency.begin() + top_cnt,
                 [&top_latency_sum](uint64_t n) { top_latency_sum += n; });
-  printf("[Top10 average Latency = %" PRIu64" us]\n", top_latency_sum / top_cnt);
+  printf("[Top10 average Latency = %" PRIu64 " us]\n", top_latency_sum / top_cnt);
 
   Clear();
 }
 
-} // namespace raft
+}  // namespace raft

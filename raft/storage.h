@@ -31,6 +31,13 @@ class Storage {
   // there is no valid log entry, returns 0
   virtual raft_index_t LastIndex() const = 0;
 
+  // Throttle the bandwidth of this storage. This is used to monitor the Fail-Slow nodes
+  // The throttled input bandwidth is marked as MiB/s
+  virtual void ThrottleBandwidth(double bw) { max_bw_ = bw; }
+
+  // Cancel the throttled bandwidth results
+  virtual void UnThrottleBandwidth() { max_bw_ = -1; }
+
   // Return the persisted raft state. Mark valid field as false if there
   // is no valid raft state
   virtual PersistRaftState PersistState() const = 0;
@@ -57,6 +64,9 @@ class Storage {
   virtual void Sync() = 0;
 
   virtual ~Storage() = default;
+
+ protected:
+  double max_bw_ = -1;  // -1 means no throttle
 };
 
 // This class is only for unit test, it is used for simulating the behaviour

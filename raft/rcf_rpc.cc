@@ -5,6 +5,7 @@
 #include <ctime>
 #include <fstream>
 #include <ratio>
+#include <thread>
 
 #include "RCF/ByteBuffer.hpp"
 #include "RCF/ClientStub.hpp"
@@ -157,7 +158,7 @@ void RCFRpcClient::sendMessage(const AppendEntriesArgs &args) {
 #else
   auto cmp_callback = [=]() {
     onAppendEntriesComplete(ret, client_ptr, this->raft_, this->id_,
-                            {arg_buf.getLength(), start_time}, &(this->recorder_));
+                            {arg_buf.getLength(), this->max_bw_, start_time}, &(this->recorder_));
   };
 #endif
   ret = client_ptr->AppendEntries(RCF::AsyncTwoway(cmp_callback), arg_buf);
@@ -232,8 +233,28 @@ void RCFRpcClient::onAppendEntriesComplete(RCF::Future<RCF::ByteBuffer> ret, Cli
     AppendEntriesReply reply;
     Serializer::NewSerializer().Deserialize(&ret_buf, &reply);
     if (raft != nullptr) {
-      // Use the CodeConversion version of Processing AppendEntriesReply
-      // raft->Process(&reply);
+      // Update the Performance Counter within the AppendEntriesReply message
+      // Only record the estimated bandwidth when the workload size is large
+      if (rpc_stats.arg_size > config::kMinimalSizeForAppendEntriesMonitoring) {
+        // printf("S%d RPC time: %ld us\n", peer, time);
+        if (rpc_stats.max_bw != -1) {
+          // Estimate the network time
+          auto estimate_net_time = util::SizeToTime(rpc_stats.arg_size, rpc_stats.max_bw);
+          auto actual_net_time =
+              time - (reply.follower_perf.disk_time + reply.follower_perf.cpu_time);
+          if (estimate_net_time - actual_net_time > 5000) {
+            std::this_thread::sleep_for(
+                std::chrono::microseconds(int64_t(estimate_net_time - actual_net_time)));
+          }
+          reply.follower_perf.arg_sz = rpc_stats.arg_size;
+          reply.follower_perf.net_time = estimate_net_time;
+        } else {
+          reply.follower_perf.arg_sz = rpc_stats.arg_size;
+          reply.follower_perf.net_time =
+              time - (reply.follower_perf.disk_time + reply.follower_perf.cpu_time);
+        }
+      }
+      reply.follower_perf.arg_sz = rpc_stats.arg_size;
       raft->ProcessCodeConversion(&reply);
     }
 

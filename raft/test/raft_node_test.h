@@ -106,6 +106,20 @@ class RaftNodeTest : public ::testing::Test {
     }
   }
 
+  void ThrottleDiskBandwidth(raft_node_id_t id, double bw) {
+    this->nodes_[id]->ThrottleDiskBandwidth(bw);
+  }
+
+  void UnThrottleDiskBandwidth(raft_node_id_t id) { this->nodes_[id]->UnthrottleDiskBandwidth(); }
+
+  void ThrottleNetworkBandwidth(raft_node_id_t id1, raft_node_id_t id2, double bw) {
+    this->nodes_[id1]->ThrottleNetworkBandwidth(id2, bw);
+  }
+
+  void UnThrottleNetworkBandwidth(raft_node_id_t id1, raft_node_id_t id2) {
+    this->nodes_[id1]->UnThrottleNetworkBandwidth(id2);
+  }
+
   // Create a thread that holds this raft node, and start running this node
   // immediately returns the pointer to that raft node
   void LaunchRaftNodeInstance(const RaftNode::NodeConfig &config) {
@@ -130,7 +144,9 @@ class RaftNodeTest : public ::testing::Test {
     static auto chunk_count = raft::code_conversion::get_chunk_count(kMaxK);
 
     // The first 4 bytes are non-encoded data
-    static int kCmdSize = chunk_count * 128 + sizeof(int);
+    static const size_t kLargeSize = 2 * 1024 * 1024ULL;
+    size_t sz_per_chunk = kLargeSize / chunk_count;
+    static int kCmdSize = chunk_count * sz_per_chunk + sizeof(int);
 
     auto data = new char[kCmdSize];
     *reinterpret_cast<int *>(data) = val;
@@ -174,7 +190,7 @@ class RaftNodeTest : public ::testing::Test {
 
   // Where is a majority servers alive in cluster, it's feasible to propose one
   // entry and reach an agreement among these servers
-  bool ProposeOneEntry(int value, bool cc = false) {
+  bool ProposeOneEntry(int value, bool cc = false, uint64_t *lat = nullptr) {
     const int retry_cnt = 20;
 
     for (int run = 0; run < retry_cnt; ++run) {
@@ -187,6 +203,9 @@ class RaftNodeTest : public ::testing::Test {
         }
         propose_result = nodes_[i]->getRaftState()->Propose(cmd);
         if (propose_result.is_leader) {
+          if (lat != nullptr) {
+            *lat = util::NowMicro();
+          }
           leader_id = i;
           break;
         }
@@ -205,6 +224,9 @@ class RaftNodeTest : public ::testing::Test {
                           : checkCommittedCodeConversion(propose_result, value);
           if (succ) {
             LOG(util::kRaft, "[SUCC] Check Value Done: %d", value);
+            if (lat != nullptr) {
+              *lat = util::NowMicro() - *lat;
+            }
             return true;
           } else {
             sleepMs(20);
@@ -419,6 +441,7 @@ class RaftNodeTest : public ::testing::Test {
       if (config.storage_name != "") {
         // std::filesystem::remove(config.storage_name);
         remove(config.storage_name.c_str());
+        remove((config.storage_name + ".reserve").c_str());
       }
     }
   }

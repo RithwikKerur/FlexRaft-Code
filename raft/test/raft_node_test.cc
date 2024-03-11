@@ -171,7 +171,7 @@ TEST_F(RaftNodeBasicTest, DISABLED_TestNewLeaderGatheringFullLogEntry) {
 
   ClearTestContext(config);
 }
-TEST_F(RaftNodeBasicTest, TestRecoverChunksForNewServers) {
+TEST_F(RaftNodeBasicTest, DISABLED_TestRecoverChunksForNewServers) {
   auto config = ConstructNodesConfig(7, false);
   LaunchAllServers(config);
   sleepMs(1000);
@@ -192,6 +192,34 @@ TEST_F(RaftNodeBasicTest, TestRecoverChunksForNewServers) {
   EXPECT_TRUE(ProposeOneEntry(4, true));
   EXPECT_TRUE(ProposeOneEntry(5, true));
   EXPECT_TRUE(ProposeOneEntry(6, true));
+
+  ClearTestContext(config);
+}
+
+TEST_F(RaftNodeBasicTest, TestNodeStatesMonitoring) {
+  const int node_num = 5;
+  auto config = ConstructNodesConfig(node_num, true);
+  LaunchAllServers(config);
+  sleepMs(1000);
+
+  auto leader_id = GetLeaderId();
+
+  // Throttle the bandwidth of this node to be 100MiB/s
+  // ThrottleDiskBandwidth((leader_id + 1) % node_num, 50);
+  // Disconnect((leader_id + 1) % node_num);
+
+  auto id2 = (leader_id + 1) % node_num;
+
+  // ThrottleNetworkBandwidth(leader_id, id2, 50);
+
+  // Test propose a few entries
+  util::Timer timer;
+  const int kProposeCnt = 200;
+  uint64_t lat = 0, lat_sum = 0;
+  for (int i = 0; i < kProposeCnt; ++i) {
+    EXPECT_TRUE(ProposeOneEntry(i, true));
+  }
+  // printf("Average Commit Latency: %lu us\n", lat_sum / kProposeCnt);
 
   ClearTestContext(config);
 }

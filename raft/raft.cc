@@ -2,6 +2,7 @@
 
 #include <cassert>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -236,6 +237,8 @@ void RaftState::ProcessCodeConversion(AppendEntriesArgs *args, AppendEntriesRepl
   reply->reply_id = id_;
   reply->chunk_info_cnt = 0;
 
+  reply->follower_perf.storage_sz = 0;
+
   util::Timer cpu_timer;
 
   // Reply false immediately if arguments' term is smaller
@@ -389,6 +392,21 @@ void RaftState::ProcessCodeConversion(AppendEntriesReply *reply) {
 
   auto peer_id = reply->reply_id;
   auto node = raft_peer_[peer_id];
+
+  // Calculate the estimated bandwidth results of both network and disk
+  // Append these two bandwidth estimation records into the monitoring history
+  if (reply->follower_perf.storage_sz > 4096 && reply->follower_perf.disk_time > 0) {
+    double disk_bw = double(reply->follower_perf.storage_sz) / (reply->follower_perf.disk_time) *
+                     1e6 / (1 << 20);
+    bw_monitor_.AddDiskBandwidthRecord(peer_id, disk_bw);
+  }
+
+  if (reply->follower_perf.arg_sz > 4096 && reply->follower_perf.net_time > 0) {
+    double net_bw =
+        double(reply->follower_perf.arg_sz) / (reply->follower_perf.net_time) * 1e6 / (1 << 20);
+    bw_monitor_.AddNetBandwidthRecord(peer_id, net_bw);
+  }
+
   if (reply->success) {  // Requested entries are successfully replicated
     // Update nextIndex and matchIndex for this server
     auto update_nextIndex = reply->expect_index;
@@ -865,7 +883,7 @@ void RaftState::CheckConflictEntryAndAppendNewCodeConversion(AppendEntriesArgs *
   auto array_index = 0;
 
   reply->follower_perf.disk_time = 0;
-  reply->follower_perf.payload_sz = 0;
+  reply->follower_perf.storage_sz = 0;
 
   auto ser = Serializer::NewSerializer();
   util::Timer disk_timer;
@@ -906,13 +924,13 @@ void RaftState::CheckConflictEntryAndAppendNewCodeConversion(AppendEntriesArgs *
       if (!do_overwrite) {
         if (reserve_storage_) {
           reserve_storage_->OverwriteEntry(raft_index, reserve_entry);
-          reply->follower_perf.payload_sz += ser.getSerializeSize(reserve_entry);
+          reply->follower_perf.storage_sz += ser.getSerializeSize(reserve_entry);
         }
         do_overwrite = true;
       } else {
         if (reserve_storage_) {
           reserve_storage_->AppendEntry(reserve_entry);
-          reply->follower_perf.payload_sz += ser.getSerializeSize(reserve_entry);
+          reply->follower_perf.storage_sz += ser.getSerializeSize(reserve_entry);
         }
       }
       LOG(util::kRaft, "[CC] S%d OVERWRITE I%d ConflictIndex=I%d", id_, raft_index, raft_index);
@@ -942,8 +960,8 @@ void RaftState::CheckConflictEntryAndAppendNewCodeConversion(AppendEntriesArgs *
     if (storage_) storage_->AppendEntry(org_entry);
     if (reserve_storage_) reserve_storage_->AppendEntry(reserve_entry);
 
-    reply->follower_perf.payload_sz += ser.getSerializeSize(org_entry);
-    reply->follower_perf.payload_sz += ser.getSerializeSize(reserve_entry);
+    reply->follower_perf.storage_sz += ser.getSerializeSize(org_entry);
+    reply->follower_perf.storage_sz += ser.getSerializeSize(reserve_entry);
 
     auto reply_chunk_info = args->entries[i].GetChunkInfo();
     reply_chunk_info.contain_original = true;
@@ -1019,6 +1037,7 @@ void RaftState::tryUpdateCommitIndex() {
         auto dura =
             std::chrono::duration_cast<std::chrono::microseconds>(end - commit_start_time_[N]);
         commit_elapse_time_[N] = dura.count();
+        printf("Commit Index %u time: %lu us\n", N, commit_elapse_time_[N]);
       }
     }
   }
@@ -1571,6 +1590,8 @@ void RaftState::ReplicateNewProposeEntryCodeConversion(raft_index_t raft_index) 
   LOG(util::kRaft, "[CC] S%d REPLICATE NEW ENTRY CODE CONVERSION", id_);
   auto live_vec = live_monitor_.GetLivenessVector();
 
+  auto start = util::NowMicro();
+
   // The parameter k is fixed to be N - F all the time, and the parameter m is fixed to be F
   raft_encoding_param_t encode_k = live_vec.size() - livenessLevel();
   raft_encoding_param_t encode_m = livenessLevel();
@@ -1591,6 +1612,9 @@ void RaftState::ReplicateNewProposeEntryCodeConversion(raft_index_t raft_index) 
   cc_managment_.insert_or_assign(raft_index, ccm);
 
   MaybeAdjustDistributionAndReplicate(live_vec);
+
+  auto dura = util::NowMicro() - start;
+  // printf("CPU time: %lu us\n", dura);
 
   resetReplicationTimer();
 }

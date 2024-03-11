@@ -32,7 +32,6 @@ RaftNode::RaftNode(const NodeConfig &node_config)
 void RaftNode::Init() {
   // Create an RPC server that receives request from remote servers
   rcf_server_ = new rpc::RCFRpcServer(servers_[node_id_me_]);
-  rcf_server_->Start();
 
   // Create an RPC client that is able to send RPC request to remote server
   for (const auto &[id, addr] : servers_) {
@@ -56,6 +55,8 @@ void RaftNode::Init() {
   for (auto &[_, client] : rcf_clients_) {
     client->setState(raft_state_);
   }
+
+  rcf_server_->Start();
 
   // Setup failure state
   exit_.store(false);

@@ -21,6 +21,7 @@ namespace config {
 // Each RPC call size must not exceed 512MB
 static constexpr size_t kMaxMessageLength = 512 * 1024 * 1024;
 static constexpr size_t kRPCTimeout = 10000;
+static constexpr size_t kMinimalSizeForAppendEntriesMonitoring = 16 * 1024ULL;
 };  // namespace config
 
 RCF_BEGIN(I_RaftRPCService, "I_RaftRPCService")
@@ -33,6 +34,7 @@ RCF_END(I_RaftService)
 // Some statistics about one rpc call arguments
 struct RPCArgStats {
   size_t arg_size;
+  double max_bw;
   util::TimePoint start_time;
 };
 
