@@ -45,6 +45,9 @@ else()
   message("-- Found Library ZSTD " ${ZSTD_LIBRARIES})
 endif()
 
+
+
+
 set(
   KV_SRC 
   type.cc
@@ -68,6 +71,15 @@ set(
   ${ZSTD_LIBRARIES}
 )
 
+find_path(ROCKSDB_INCLUDE_DIR
+  NAMES db.h
+  PATHS /opt/homebrew/include/rocksdb
+)
+if (NOT ROCKSDB_INCLUDE_DIR)
+  message(FATAL_ERROR "rocksdb headers not found")
+endif()
+
+include_directories(${ROCKSDB_INCLUDE_DIR}/..) 
 
 add_library(kv ${KV_SRC})
 target_link_libraries(kv raft rcf ${ROCKSDB_LIB})

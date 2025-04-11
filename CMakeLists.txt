@@ -16,11 +16,10 @@ include_directories(${CMAKE_SOURCE_DIR}/RCF/include)
 add_subdirectory(${CMAKE_SOURCE_DIR}/RCF)
 
 include_directories(${CMAKE_SOURCE_DIR}/third-party/leveldb/include)
+include_directories(/opt/homebrew/include)
+
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/third-party)
 add_subdirectory(${CMAKE_SOURCE_DIR}/raft)
 add_subdirectory(${CMAKE_SOURCE_DIR}/kv)
 add_subdirectory(${CMAKE_SOURCE_DIR}/bench)
-
-
-

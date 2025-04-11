@@ -27,6 +27,9 @@ endif()
 
 SET(LIBS ${libpthread} ${libdl} ${libuuid} ${libisal})
 
+
+include_directories(/opt/homebrew/include)
+
 set(
   RAFT_SRC 
   log_entry.cc 
