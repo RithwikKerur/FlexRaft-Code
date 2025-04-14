@@ -41,11 +41,11 @@ class Logger {
 #ifdef ENABLE_LOG
   static const bool debugFlag = true;
 #else
-  static const bool debugFlag = false;
+  static const bool debugFlag = true;
 #endif
 
   // On debugFlag = true, enable RPC related messages
-  static const bool debugRPCFlag = false;
+  static const bool debugRPCFlag = true;
 
   // On debugRaftFlag = true, enable Raft logic related messages
   static const bool debugRaftFlag = true;

@@ -6,6 +6,7 @@
 #include "raft_type.h"
 #include "type.h"
 #include "util.h"
+#include <cstdio>
 
 namespace kv {
 size_t GetRawBytesSizeForRequest(const Request &request) {
@@ -44,7 +45,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
       request->value.push_back(tmp_data[i]);
     }
 
-    LOG(raft::util::kRaft, "RaftEnt To Request: k=%d,m=%d,frag_id=%d", 1, 0, 0);
+    std::printf( "RaftEnt To Request: k=%d,m=%d,frag_id=%d", 1, 0, 0);
 
     // value would be the prefix length key format
     auto remaining_size = ent.CommandData().size() - (bytes - ent.CommandData().data());
@@ -66,7 +67,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
     *reinterpret_cast<int *>(tmp_data + 4) = m;
     *reinterpret_cast<int *>(tmp_data + 8) = static_cast<int>(server_id);
 
-    LOG(raft::util::kRaft, "RaftEnt To Request: k=%d,m=%d,frag_id=%d", k, m, server_id);
+    std::printf(" Encoded RaftEnt To Request: k=%d,m=%d,frag_id=%d", k, m, server_id);
 
     for (int i = 0; i < 12; ++i) {
       request->value.push_back(tmp_data[i]);
@@ -93,7 +94,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request) {
       request->value.push_back(tmp_data[i]);
     }
 
-    LOG(raft::util::kRaft, "RaftEnt To Request: k=%d,m=%d,frag_id=%d", 1, 0, 0);
+    std::printf( "RaftEnt To Request: k=%d,m=%d,frag_id=%d", 1, 0, 0);
 
     // value would be the prefix length key format
     auto remaining_size = ent.CommandData().size() - (bytes - ent.CommandData().data());
@@ -117,6 +118,8 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request) {
     // LOG(raft::util::kRaft, "RaftEnt To Request: k=%d,m=%d,frag_id=%d",
     //     ent.GetVersion().GetK(), ent.GetVersion().GetM(),
     //     ent.GetVersion().GetFragmentId());
+
+    std::printf(" Encoded RaftEnt To Request: ");
 
     for (int i = 0; i < 12; ++i) {
       request->value.push_back(tmp_data[i]);

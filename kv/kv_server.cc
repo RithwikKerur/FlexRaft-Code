@@ -17,6 +17,8 @@
 #include "storage_engine.h"
 #include "type.h"
 #include "util.h"
+#include <cstdio>
+
 
 namespace kv {
 KvServer *KvServer::NewKvServer(const KvServerConfig &config) {
@@ -170,7 +172,7 @@ void KvServer::ApplyRequestCommandThread(KvServer *server) {
     // RawBytesToRequest(ent.CommandData().data(), &req);
     RaftEntryToRequest(ent, &req, server->Id(), server->ClusterServerNum());
 
-    LOG(raft::util::kRaft, "S%d Apply request(%s) to db", server->Id(), ToString(req).c_str());
+    std::printf("S%d Apply request(%s) to db", server->Id(), ToString(req).c_str());
 
     std::string get_value;
     KvRequestApplyResult ar = {ent.Term(), kOk, std::string("")};
