@@ -9,6 +9,8 @@ namespace raft {
 namespace util {
 
 void Logger::Debug(LogMsgType type, const char *fmt, ...) {
+
+  std::cout << "IN LOGGER\n" << std::endl;
   
   auto now = std::chrono::steady_clock::now();
   // Log in a granularity of 0.1ms

@@ -18,6 +18,7 @@ static inline size_t alignment(size_t size, size_t align) {
 namespace raft {
 
 FileStorage *FileStorage::Open(const std::string &filename) {
+    printf("Filename: %s\n", filename.c_str());
   int fd = ::open(filename.c_str(), O_CREAT | O_RDWR, 0644);
   if (fd < 0) {
     return nullptr;

@@ -57,6 +57,7 @@ void RaftNode::Init() {
 void RaftNode::Start() {
   LOG(util::kRaft, "S%d Starts", node_id_me_);
   printf("[FlexibleK Raft Starts Running]\n");
+  printf("STORING IN %s", storage_);
   exit_.store(false);
   raft_state_->Init();
   startTickerThread();
