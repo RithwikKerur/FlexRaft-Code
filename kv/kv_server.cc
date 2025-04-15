@@ -65,8 +65,8 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
     resp->err = kRequestExecTimeout;
     return;
   }
-  LOG(raft::util::kRaft, "S%d Deals with Req(From C%d) %s", id_, request->client_id,
-      ToString(*request).c_str());
+  LOG(raft::util::kRaft, "S%d Deals with Req(From C%d) key = %s value = %s", id_, request->client_id,
+      request->key.c_str(), request->value.c_str());
 
   resp->type = request->type;
   resp->client_id = request->client_id;
@@ -172,7 +172,7 @@ void KvServer::ApplyRequestCommandThread(KvServer *server) {
     // RawBytesToRequest(ent.CommandData().data(), &req);
     RaftEntryToRequest(ent, &req, server->Id(), server->ClusterServerNum());
 
-    std::printf("S%d Apply request(%s) to db", server->Id(), ToString(req).c_str());
+    std::printf("S%d Apply request(key = %s value = %s) to db", server->Id(), req.key.c_str(), req.value.c_str());
 
     std::string get_value;
     KvRequestApplyResult ar = {ent.Term(), kOk, std::string("")};

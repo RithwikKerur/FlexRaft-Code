@@ -18,6 +18,8 @@ RaftNode::RaftNode(const NodeConfig &node_config)
       servers_(node_config.servers),
       raft_state_(nullptr),
       rsm_(node_config.rsm) {
+        printf("STORING IN %s", node_config.storage_filename);
+
   if (node_config.storage_filename != "") {
     storage_ = FileStorage::Open(node_config.storage_filename);
   } else {
@@ -57,7 +59,6 @@ void RaftNode::Init() {
 void RaftNode::Start() {
   LOG(util::kRaft, "S%d Starts", node_id_me_);
   printf("[FlexibleK Raft Starts Running]\n");
-  printf("STORING IN %s", storage_);
   exit_.store(false);
   raft_state_->Init();
   startTickerThread();
