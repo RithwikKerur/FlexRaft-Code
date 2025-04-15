@@ -31,7 +31,7 @@ Response KvServiceClient::WaitUntilRequestDone(const Request &request) {
       sleepMs(300);
       continue;
     }
-    LOG(raft::util::kRaft, "[C%d] Send Req (%s) to S%d", ClientId(), ToString(request).c_str(),
+    LOG(raft::util::kRaft, "[C%d] Send Req (key = %s value = %s) to S%d", ClientId(), request.key.c_str(), request.value.c_str(),
         curr_leader_);
     auto resp = GetRPCStub(curr_leader_)->DealWithRequest(request);
     switch (resp.err) {

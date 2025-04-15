@@ -78,7 +78,7 @@ void BuildBench(const BenchConfiguration &cfg, std::vector<KvPair> *bench) {
   for (int i = 1; i <= cfg.bench_put_cnt; ++i) {
     auto key = cfg.key_prefix + std::to_string(i);
     auto val = cfg.value_prefix + std::to_string(i) + value_suffix;
-    printf("Key %s  Value %s\n", key, val);
+    printf("Key %s  Value %s\n", key.c_str(), val.c_str());
     bench->push_back({key, val});
   }
 }

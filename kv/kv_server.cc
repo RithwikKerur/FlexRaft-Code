@@ -100,8 +100,9 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
       // Construct a raft command
       raft::util::Timer commit_timer;
       commit_timer.Reset();
-
+      LOG(raft::util::kRaft, "Command Data size: %d", size);
       auto cmd = raft::CommandData{start_offset, raft::Slice(data, size)};
+      
       auto pr = raft_->Propose(cmd);
 
       // Loop until the propose entry to be applied

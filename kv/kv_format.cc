@@ -13,6 +13,7 @@ size_t GetRawBytesSizeForRequest(const Request &request) {
   size_t hdr_size = RequestHdrSize();
   size_t key_size = sizeof(int) + request.key.size();
   size_t val_size = sizeof(int) + request.value.size();
+  printf("hrd_size %d  key_size %d  val_size %d", hdr_size, key_size, val_size);
   return hdr_size + key_size + val_size;
 }
 
@@ -20,6 +21,7 @@ void RequestToRawBytes(const Request &request, char *bytes) {
   std::memcpy(bytes, &request, RequestHdrSize());
   bytes = MakePrefixLengthKey(request.key, bytes + RequestHdrSize());
   MakePrefixLengthKey(request.value, bytes);
+  printf("bytes %s", bytes);
 }
 
 void RawBytesToRequest(char *bytes, Request *request) {
