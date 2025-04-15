@@ -165,7 +165,8 @@ void KvServer::ApplyRequestCommandThread(KvServer *server) {
       continue;
     }
     LOG(raft::util::kRaft, "S%d Pop Ent From Raft I%d T%d", server->Id(), ent.Index(), ent.Term());
-
+    LOG(raft::util::kRaft,"Command Size: %d \n", ent.CommandLength());
+    LOG(raft::util::kRaft,"Command Size2: %d \n", ent.CommandData().size());
     elapse_timer.Reset();
 
     // Apply this entry to state machine(i.e. Storage Engine)
