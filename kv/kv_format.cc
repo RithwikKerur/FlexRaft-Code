@@ -75,6 +75,8 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
       request->value.push_back(tmp_data[i]);
     }
 
+    std::printf("Fragment Size %d \n", ent.FragmentSlice().size());
+
     // Append the value contents
     request->value.append(ent.FragmentSlice().data(), ent.FragmentSlice().size());
   }

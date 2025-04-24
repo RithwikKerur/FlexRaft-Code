@@ -208,6 +208,7 @@ void RaftState::Process(AppendEntriesArgs *args, AppendEntriesReply *reply) {
 }
 
 void RaftState::Process(AppendEntriesReply *reply) {
+  // Leader processing replies
   assert(reply != nullptr);
 
   // Note: Liveness monitor must be processed without exclusive access
