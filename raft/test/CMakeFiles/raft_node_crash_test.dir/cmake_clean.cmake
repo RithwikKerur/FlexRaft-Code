@@ -1,0 +1,11 @@
+file(REMOVE_RECURSE
+  "CMakeFiles/raft_node_crash_test.dir/raft_node_crash_test.cc.o"
+  "CMakeFiles/raft_node_crash_test.dir/raft_node_crash_test.cc.o.d"
+  "raft_node_crash_test"
+  "raft_node_crash_test.pdb"
+)
+
+# Per-language clean rules from dependency scanning.
+foreach(lang CXX)
+  include(CMakeFiles/raft_node_crash_test.dir/cmake_clean_${lang}.cmake OPTIONAL)
+endforeach()

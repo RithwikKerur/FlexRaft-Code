@@ -1,0 +1,2 @@
+/usr/bin/ar qc libraft.a CMakeFiles/raft.dir/log_entry.cc.o CMakeFiles/raft.dir/serializer.cc.o CMakeFiles/raft.dir/encoder.cc.o CMakeFiles/raft.dir/util.cc.o CMakeFiles/raft.dir/log_manager.cc.o CMakeFiles/raft.dir/storage.cc.o CMakeFiles/raft.dir/rcf_rpc.cc.o CMakeFiles/raft.dir/raft.cc.o CMakeFiles/raft.dir/raft_node.cc.o
+/usr/bin/ranlib libraft.a

@@ -64,6 +64,7 @@ RaftState *RaftState::NewRaftState(const RaftConfig &config) {
 
   ret->last_applied_ = 0;
   ret->commit_index_ = 0;
+  ret->total_servers = config.rpc_clients.size
 
   ret->PersistRaftState();
 
@@ -1072,6 +1073,7 @@ void RaftState::MaybeReEncodingAndReplicate() {
   LOG(util::kRaft, "S%d MAY REENCODE ENTRIES", id_);
 
   auto live_servers = live_monitor_.LiveNumber();
+  int 
   raft_encoding_param_t encode_k = live_servers - livenessLevel();
   raft_encoding_param_t encode_m = GetClusterServerNumber() - encode_k;
   LOG(util::kRaft, "S%d Estimate %d Server Alive K:%d M:%d", id_, live_servers, encode_k, encode_m);

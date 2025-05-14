@@ -457,6 +457,7 @@ class RaftState {
   LivenessMonitor live_monitor_;
   Encoder encoder_;
   SequenceGenerator seq_gen_;
+  int total_servers;
   // For each index, there is an associated stripe that contains the encoded
   // data
   std::map<raft_index_t, Stripe *> encoded_stripe_;

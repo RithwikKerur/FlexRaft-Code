@@ -102,6 +102,8 @@ void FileStorage::AppendEntry(const LogEntry &ent) {
   if (ent.Index() != header_.lastLogIndex + 1) {
     return;
   }
+  printf("notEncoded Size: %d", ent.NotEncodedSlice().size());
+  printf("Fragment Size: %d", ent.FragmentSlice().size());
   auto ser = Serializer::NewSerializer();
   auto write_size = ser.getSerializeSize(ent);
   LOG(util::kRaft, "Storage: AppendEntry I%d, Size=%d", ent.Index(), write_size);
