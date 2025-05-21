@@ -91,6 +91,8 @@ class LogEntry {
 
   auto FragmentSlice() const -> Slice { return Type() == kNormal ? Slice() : fragment_slice_; }
   void SetFragmentSlice(const Slice &slice) { fragment_slice_ = slice; }
+  void SetExtraFragment(const Slice &slice) { extra_fragment_ = slice; }
+  auto ExtraFragment() const -> Slice { return Type() == kNormal ? Slice() : extra_fragment_; }
 
   // Serialization function required by RCF
   // void serialize(SF::Archive &ar);
@@ -124,6 +126,7 @@ class LogEntry {
   Slice command_data_;       // Spcified by user, valid iff type = normal
   Slice not_encoded_slice_;  // Command data not being encoded
   Slice fragment_slice_;     // Fragments of encoded data
+  Slice extra_fragment_;
 };
 
 auto operator==(const LogEntry &lhs, const LogEntry &rhs) -> bool;

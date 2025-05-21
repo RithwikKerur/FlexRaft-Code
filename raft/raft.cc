@@ -897,7 +897,7 @@ void RaftState::tickOnPreLeader() {
 }
 
 void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k,
-                                raft_encoding_param_t m, Stripe *stripe) {
+                                raft_encoding_param_t m, Stripe *stripe, int live_servers) {
   assert(raft_index <= lm_->LastLogEntryIndex());
   auto ent = lm_->GetSingleLogEntry(raft_index);
   assert(ent != nullptr);
@@ -911,8 +911,35 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
   auto data_to_encode = ent->CommandData().data() + ent->StartOffset();
   auto datasize_to_encode = ent->CommandData().size() - ent->StartOffset();
   Slice encode_slice = Slice(data_to_encode, datasize_to_encode);
-  encoder_.EncodeSlice(encode_slice, k, m, &results);
+  bool backup = false;
+  if(live_servers < k+m){
+    backup = true;
+    encoder_.EncodeSlice(encode_slice, k, 2*m+k, &results);
+  }
+  else{
+    encoder_.EncodeSlice(encode_slice, k, m, &results);
+  }
+  auto iter = results.begin();
+  while(iter != results.end()){
+    int frag_id = iter->first;
+    LogEntry encoded_ent;
+    encoded_ent.SetIndex(raft_index);
+    encoded_ent.SetTerm(stripe->raft_term);
+    encoded_ent.SetType(kFragments);
+    encoded_ent.SetChunkInfo(ChunkInfo{k, raft_index});
+    encoded_ent.SetStartOffset(ent->StartOffset());
 
+    encoded_ent.SetCommandLength(ent->CommandLength());
+    encoded_ent.SetNotEncodedSlice(Slice(ent->CommandData().data(), ent->StartOffset()));
+    encoded_ent.SetFragmentSlice(iter->second);
+    if(backup){
+      ++iter;
+      encoded_ent.SetExtraFragment(iter->second);
+    }
+    stripe->fragments[frag_id] = encoded_ent;
+    ++iter;
+
+  }
   for (const auto &[frag_id, frag] : results) {
     LogEntry encoded_ent;
     encoded_ent.SetIndex(raft_index);
@@ -1001,7 +1028,7 @@ void RaftState::ReplicateNewProposeEntry(raft_index_t raft_index) {
   // k = N'- F, m = N - k where N is fixed
   // Makes sure there are totally N chunks and each of these chunks is mapped to
   // a certain follower
-  raft_encoding_param_t encode_k = live_servers - livenessLevel();
+  raft_encoding_param_t encode_k = livenessLevel();
   raft_encoding_param_t encode_m = GetClusterServerNumber() - encode_k;
 
   LOG(util::kRaft, "S%d Estimates %d Alive Servers K:%d M:%d", id_, live_servers, encode_k,
@@ -1012,7 +1039,7 @@ void RaftState::ReplicateNewProposeEntry(raft_index_t raft_index) {
 #ifdef ENABLE_PERF_RECORDING
   util::EncodingEntryPerfCounter perf_counter(encode_k, encode_m);
 #endif
-  EncodeRaftEntry(raft_index, encode_k, encode_m, stripe);
+  EncodeRaftEntry(raft_index, encode_k, encode_m, stripe, live_servers);
   encoded_stripe_.insert_or_assign(raft_index, stripe);
 #ifdef ENABLE_PERF_RECORDING
   perf_counter.Record();
@@ -1073,7 +1100,6 @@ void RaftState::MaybeReEncodingAndReplicate() {
   LOG(util::kRaft, "S%d MAY REENCODE ENTRIES", id_);
 
   auto live_servers = live_monitor_.LiveNumber();
-  int 
   raft_encoding_param_t encode_k = live_servers - livenessLevel();
   raft_encoding_param_t encode_m = GetClusterServerNumber() - encode_k;
   LOG(util::kRaft, "S%d Estimate %d Server Alive K:%d M:%d", id_, live_servers, encode_k, encode_m);

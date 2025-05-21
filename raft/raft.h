@@ -307,7 +307,7 @@ class RaftState {
   // Encoding specified log entry with encoding parameter k, m, the results is
   // written into specified stripe
   void EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k, raft_encoding_param_t m,
-                       Stripe *stripe);
+                       Stripe *stripe, int live_servers);
 
   // Decoding all fragments contained in a stripe into a complete log entry
   bool DecodingRaftEntry(Stripe *stripe, LogEntry *ent);

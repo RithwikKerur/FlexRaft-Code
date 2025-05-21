@@ -60,6 +60,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
 
     // Construct the value, in the following format:
     // k, m, fragment_id, value_contents
+    //TODO modify to also include backup fragment
     request->value.reserve(sizeof(int) * 3 + ent.FragmentSlice().size());
 
     char tmp_data[12];
