@@ -5,7 +5,6 @@
 #include "gtest/gtest.h"
 #include "log_entry.h"
 #include "raft_type.h"
-
 namespace raft {
 class EncoderTest : public ::testing::Test {
  public:

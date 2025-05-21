@@ -2,7 +2,11 @@ cmake_minimum_required(VERSION 3.8)
 SET(CMAKE_CXX_STANDARD 17)
 
 find_package(GTest REQUIRED)
-include_directories(${GTEST_INCLUDE_DIR})
+find_package(gflags REQUIRED)
+include_directories(
+  ${GTEST_INCLUDE_DIR}
+  ${gflags_INCLUDE_DIRS}
+)
 
 
 find_library(libpthread NAMES pthread)
