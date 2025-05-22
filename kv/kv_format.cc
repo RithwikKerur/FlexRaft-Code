@@ -59,27 +59,43 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
     GetKeyFromPrefixLengthFormat(key_data, &(request->key));
 
     // Construct the value, in the following format:
-    // k, m, fragment_id, value_contents
+    // k, m, fragment_id, frag_size, value_contents
     //TODO modify to also include backup fragment
-    request->value.reserve(sizeof(int) * 3 + ent.FragmentSlice().size());
+    if(ent.ExtraFragment().size() > 0){
+      printf("Extra Fragment Exists");
+      request->value.reserve(sizeof(int) * 5 + ent.FragmentSlice().size());
+    }
+    else{
+      printf("Single Fragment");
+      request->value.reserve(sizeof(int) * 4 + ent.FragmentSlice().size()+ent.ExtraFragment().size());
+    }
 
-    char tmp_data[12];
+    char tmp_data[20];
     int k = ent.GetChunkInfo().GetK();
     int m = server_num - k;
     *reinterpret_cast<int *>(tmp_data) = k;
     *reinterpret_cast<int *>(tmp_data + 4) = m;
     *reinterpret_cast<int *>(tmp_data + 8) = static_cast<int>(server_id);
-
+    *reinterpret_cast<int *>(tmp_data + 12) = ent.FragmentSlice().size();
+    
+    *reinterpret_cast<int *>(tmp_data + 16) = ent.ExtraFragment().size();
     std::printf(" Encoded RaftEnt To Request: k=%d,m=%d,frag_id=%d", k, m, server_id);
 
-    for (int i = 0; i < 12; ++i) {
+    for (int i = 0; i < 16; ++i) {
       request->value.push_back(tmp_data[i]);
     }
 
     std::printf("Fragment Size %d \n", ent.FragmentSlice().size());
-
+    
+    std::printf("Extra Fragment Size %d \n", ent.ExtraFragment().size());
     // Append the value contents
     request->value.append(ent.FragmentSlice().data(), ent.FragmentSlice().size());
+    if(ent.ExtraFragment().size() > 0){
+      for(int i = 16; i < 20; i++){
+        request->value.push_back(tmp_data[i]);
+      }
+    }
+    request->value.append(ent.ExtraFragment().data(), ent.ExtraFragment().size());
   }
 }
 

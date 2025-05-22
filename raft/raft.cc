@@ -64,7 +64,6 @@ RaftState *RaftState::NewRaftState(const RaftConfig &config) {
 
   ret->last_applied_ = 0;
   ret->commit_index_ = 0;
-  ret->total_servers = config.rpc_clients.size
 
   ret->PersistRaftState();
 
@@ -233,7 +232,7 @@ void RaftState::Process(AppendEntriesReply *reply) {
   auto peer_id = reply->reply_id;
   auto node = raft_peer_[peer_id];
   if (reply->success) {  // Requested entries are successfully replicated
-    // Update nextIndex and matchIndex for this server
+    // Update nexis if(tIndex and matchIndex for this server
     auto update_nextIndex = reply->expect_index;
     auto update_matchIndex = update_nextIndex - 1;
 
@@ -582,13 +581,14 @@ void RaftState::tryUpdateCommitIndex() {
       }
     }
 
+    //TODO Need to modify when to commit
     // Debug:
     // ---------------------------------------------------------------------------------
     LOG(util::kRaft, "S%d I%d COMMIT REQUIRE %d, GET %d", id_, N,
-        commit_require_k + livenessLevel(), agree_cnt);
+         livenessLevel()+1, agree_cnt);
     // ---------------------------------------------------------------------------------
 
-    if (agree_cnt >= commit_require_k + livenessLevel() &&
+    if (agree_cnt >= 1 + livenessLevel() &&
         lm_->GetSingleLogEntry(N)->Term() == CurrentTerm()) {
       SetCommitIndex(N);
       // Index N is committed, no need to track them any more
@@ -935,23 +935,12 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
     if(backup){
       ++iter;
       encoded_ent.SetExtraFragment(iter->second);
+      printf("Storing 2nd fragment in entry");
+      printf(encoded_ent.GetChunkInfo().ToString().c_str());
     }
     stripe->fragments[frag_id] = encoded_ent;
     ++iter;
 
-  }
-  for (const auto &[frag_id, frag] : results) {
-    LogEntry encoded_ent;
-    encoded_ent.SetIndex(raft_index);
-    encoded_ent.SetTerm(stripe->raft_term);
-    encoded_ent.SetType(kFragments);
-    encoded_ent.SetChunkInfo(ChunkInfo{k, raft_index});
-    encoded_ent.SetStartOffset(ent->StartOffset());
-
-    encoded_ent.SetCommandLength(ent->CommandLength());
-    encoded_ent.SetNotEncodedSlice(Slice(ent->CommandData().data(), ent->StartOffset()));
-    encoded_ent.SetFragmentSlice(frag);
-    stripe->fragments[frag_id] = encoded_ent;
   }
 }
 
@@ -1115,7 +1104,7 @@ void RaftState::MaybeReEncodingAndReplicate() {
     }
     // A smaller k, needs re-encoding the entry
     auto stripe = new Stripe();
-    EncodeRaftEntry(raft_index, encode_k, encode_m, stripe);
+    EncodeRaftEntry(raft_index, encode_k, encode_m, stripe, live_servers);
     encoded_stripe_.insert_or_assign(raft_index, stripe);
     UpdateLastEncodingK(raft_index, encode_k);
     LOG(util::kRaft, "S%d Encode Entry I%d with (K%d, M%d)", id_, raft_index, encode_k, encode_m);

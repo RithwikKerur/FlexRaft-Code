@@ -17,7 +17,7 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/RCF)
 
 include_directories(${CMAKE_SOURCE_DIR}/third-party/leveldb/include)
 include_directories(/opt/homebrew/include)
-
+link_directories(/opt/homebrew/lib)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/third-party)
 add_subdirectory(${CMAKE_SOURCE_DIR}/raft)
