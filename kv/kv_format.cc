@@ -57,20 +57,20 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
     std::memcpy(request, ent.NotEncodedSlice().data(), RequestHdrSize());
     auto key_data = ent.NotEncodedSlice().data() + RequestHdrSize();
     GetKeyFromPrefixLengthFormat(key_data, &(request->key));
-
+    printf("Got Key From Prefix\n");
     // Construct the value, in the following format:
     // k, m, fragment_id, frag_size, value_contents
     //TODO modify to also include backup fragment
     if(ent.ExtraFragment().size() > 0){
-      printf("Extra Fragment Exists");
-      request->value.reserve(sizeof(int) * 5 + ent.FragmentSlice().size());
+      printf("Extra Fragment Exists\n");
+      request->value.reserve(sizeof(int) * 3 + sizeof(size_t)*2 + ent.FragmentSlice().size());
     }
     else{
-      printf("Single Fragment");
-      request->value.reserve(sizeof(int) * 4 + ent.FragmentSlice().size()+ent.ExtraFragment().size());
+      printf("Single Fragment\n");
+      request->value.reserve(sizeof(int) * 3 + sizeof(size_t) + ent.FragmentSlice().size()+ent.ExtraFragment().size());
     }
 
-    char tmp_data[20];
+    char tmp_data[28];
     int k = ent.GetChunkInfo().GetK();
     int m = server_num - k;
     *reinterpret_cast<int *>(tmp_data) = k;
@@ -78,10 +78,10 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
     *reinterpret_cast<int *>(tmp_data + 8) = static_cast<int>(server_id);
     *reinterpret_cast<int *>(tmp_data + 12) = ent.FragmentSlice().size();
     
-    *reinterpret_cast<int *>(tmp_data + 16) = ent.ExtraFragment().size();
-    std::printf(" Encoded RaftEnt To Request: k=%d,m=%d,frag_id=%d", k, m, server_id);
+    *reinterpret_cast<int *>(tmp_data + 20) = ent.ExtraFragment().size();
+    std::printf(" Encoded RaftEnt To Request: k=%d,m=%d,frag_id=%d\n", k, m, server_id);
 
-    for (int i = 0; i < 16; ++i) {
+    for (int i = 0; i < 20; ++i) {
       request->value.push_back(tmp_data[i]);
     }
 
@@ -91,11 +91,15 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
     // Append the value contents
     request->value.append(ent.FragmentSlice().data(), ent.FragmentSlice().size());
     if(ent.ExtraFragment().size() > 0){
-      for(int i = 16; i < 20; i++){
+      for(int i = 20; i < 28; i++){
         request->value.push_back(tmp_data[i]);
       }
+      printf("%s \n", ent.ExtraFragment().data());
+      printf("\n%d\n", ent.ExtraFragment().size());
+
+      request->value.append(ent.ExtraFragment().data(), ent.ExtraFragment().size());
     }
-    request->value.append(ent.ExtraFragment().data(), ent.ExtraFragment().size());
+    
   }
 }
 

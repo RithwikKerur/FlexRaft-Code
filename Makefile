@@ -1,20 +1,36 @@
+# Add -g to all builds
+CMAKE       := cmake
+CMAKE_FLAGS := -DCMAKE_CXX_FLAGS="-g"
+
 .PHONY: release
-release: clean 
-	${CMAKE} -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=true -DLOG=off -DPERF=off
+release: clean
+	$(CMAKE) -B build \
+	  -DCMAKE_BUILD_TYPE=Release \
+	  -DCMAKE_EXPORT_COMPILE_COMMANDS=true \
+	  -DLOG=off -DPERF=off \
+	  $(CMAKE_FLAGS)
 	mv build/compile_commands.json ./
-	${CMAKE} --build build -j 4
+	$(CMAKE) --build build -j 4
 
 .PHONY: build
-build: clean 
-	${CMAKE} -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=true -DLOG=off -DPERF=off
+build: clean
+	$(CMAKE) -B build \
+	  -DCMAKE_BUILD_TYPE=Debug \
+	  -DCMAKE_EXPORT_COMPILE_COMMANDS=true \
+	  -DLOG=off -DPERF=off \
+	  $(CMAKE_FLAGS)
 	mv build/compile_commands.json ./
-	${CMAKE} --build build -j 4
+	$(CMAKE) --build build -j 4
 
 .PHONY: log
-log: clean 
-	${CMAKE} -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=true -DLOG=on -DPERF=off
+log: clean
+	$(CMAKE) -B build \
+	  -DCMAKE_BUILD_TYPE=Debug \
+	  -DCMAKE_EXPORT_COMPILE_COMMANDS=true \
+	  -DLOG=on -DPERF=off \
+	  $(CMAKE_FLAGS)
 	mv build/compile_commands.json ./
-	${CMAKE} --build build -j 4
+	$(CMAKE) --build build -j 4
 
 .PHONY: clean
 clean:
@@ -25,4 +41,3 @@ format:
 	clang-format -i raft/*.h raft/*.cc
 	clang-format -i kv/*.h kv/*.cc
 	clang-format -i bench/*.h bench/*.cc
-

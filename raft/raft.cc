@@ -935,12 +935,19 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
     if(backup){
       ++iter;
       encoded_ent.SetExtraFragment(iter->second);
-      printf("Storing 2nd fragment in entry");
-      printf(encoded_ent.GetChunkInfo().ToString().c_str());
+      printf("Storing 2nd fragment in entry\n");
+      stripe->fragments[int(frag_id/2)] = encoded_ent;
     }
-    stripe->fragments[frag_id] = encoded_ent;
+    else{
+      stripe->fragments[frag_id] = encoded_ent;
+    }
+   
     ++iter;
 
+  }
+
+  for (const auto& [frag_id, entry] : stripe->fragments) {
+    printf("Fragment %d, Chunk Info %s", frag_id, entry.GetChunkInfo().ToString().c_str());  
   }
 }
 
@@ -1017,7 +1024,7 @@ void RaftState::ReplicateNewProposeEntry(raft_index_t raft_index) {
   // k = N'- F, m = N - k where N is fixed
   // Makes sure there are totally N chunks and each of these chunks is mapped to
   // a certain follower
-  raft_encoding_param_t encode_k = livenessLevel();
+  raft_encoding_param_t encode_k = livenessLevel()+1;
   raft_encoding_param_t encode_m = GetClusterServerNumber() - encode_k;
 
   LOG(util::kRaft, "S%d Estimates %d Alive Servers K:%d M:%d", id_, live_servers, encode_k,
@@ -1089,7 +1096,7 @@ void RaftState::MaybeReEncodingAndReplicate() {
   LOG(util::kRaft, "S%d MAY REENCODE ENTRIES", id_);
 
   auto live_servers = live_monitor_.LiveNumber();
-  raft_encoding_param_t encode_k = live_servers - livenessLevel();
+  raft_encoding_param_t encode_k = livenessLevel()+1;
   raft_encoding_param_t encode_m = GetClusterServerNumber() - encode_k;
   LOG(util::kRaft, "S%d Estimate %d Server Alive K:%d M:%d", id_, live_servers, encode_k, encode_m);
 
@@ -1288,6 +1295,7 @@ void RaftState::sendAppendEntries(raft_node_id_t peer) {
 
   for (auto raft_index = next_index; raft_index <= lm_->LastLogEntryIndex(); ++raft_index) {
     args.entries.push_back(encoded_stripe_[raft_index]->fragments[peer]);
+    printf(encoded_stripe_[raft_index]->fragments[peer].GetChunkInfo().ToString().c_str());
   }
   LOG(util::kRaft, "S%d AE To S%d (I%d->I%d) at T%d", id_, peer, next_index,
       lm_->LastLogEntryIndex(), CurrentTerm());

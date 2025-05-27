@@ -16,18 +16,21 @@ char *Serializer::serialize_logentry_helper(const LogEntry *entry, char *dst) {
   dst += sizeof(LogEntry);
   dst = PutPrefixLengthSlice(entry->NotEncodedSlice(), dst);
   dst = PutPrefixLengthSlice(entry->FragmentSlice(), dst);
+  dst = PutPrefixLengthSlice(entry->ExtraFragment(), dst); 
   return dst;
 }
 
 const char *Serializer::deserialize_logentry_helper(const char *src, LogEntry *entry) {
   std::memcpy(entry, src, sizeof(LogEntry));
   src += sizeof(LogEntry);
-  Slice not_encoded, frag;
+  Slice not_encoded, frag, extraFrag;
   src = ParsePrefixLengthSlice(src, &not_encoded);
   src = ParsePrefixLengthSlice(src, &frag);
+  src = ParsePrefixLengthSlice(src, &extraFrag);
 
   entry->SetNotEncodedSlice(not_encoded);
   entry->SetFragmentSlice(frag);
+  entry->SetExtraFragment(extraFrag);
 
   if (entry->Type() == kNormal) {
     entry->SetCommandData(not_encoded);
