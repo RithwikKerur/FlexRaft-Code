@@ -16,23 +16,34 @@ char *Serializer::serialize_logentry_helper(const LogEntry *entry, char *dst) {
   dst += sizeof(LogEntry);
   dst = PutPrefixLengthSlice(entry->NotEncodedSlice(), dst);
   dst = PutPrefixLengthSlice(entry->FragmentSlice(), dst);
-  dst = PutPrefixLengthSlice(entry->ExtraFragment(), dst); 
+
+  if (entry->Type() == kFragments) {
+    printf("Serializing fragment entry\n");
+    dst = PutPrefixLengthSlice(entry->ExtraFragment(), dst);
+  }
   return dst;
 }
 
 const char *Serializer::deserialize_logentry_helper(const char *src, LogEntry *entry) {
   std::memcpy(entry, src, sizeof(LogEntry));
   src += sizeof(LogEntry);
-  Slice not_encoded, frag, extraFrag;
+  Slice not_encoded, frag;
   src = ParsePrefixLengthSlice(src, &not_encoded);
   src = ParsePrefixLengthSlice(src, &frag);
-  src = ParsePrefixLengthSlice(src, &extraFrag);
 
   entry->SetNotEncodedSlice(not_encoded);
   entry->SetFragmentSlice(frag);
-  entry->SetExtraFragment(extraFrag);
+  if (entry->Type() == kFragments) {
+    printf("DeSerializing fragment entry\n");
+
+    Slice extraFrag;
+    src = ParsePrefixLengthSlice(src, &extraFrag);
+    entry->SetExtraFragment(extraFrag);
+  }
 
   if (entry->Type() == kNormal) {
+    printf("DeSerializing normal entry");
+
     entry->SetCommandData(not_encoded);
   }
   return src;
@@ -169,6 +180,7 @@ void Serializer::Deserialize(const RCF::ByteBuffer *buffer, RequestFragmentsRepl
 }
 
 char *Serializer::PutPrefixLengthSlice(const Slice &slice, char *buf) {
+  printf("Serializing slice with size %d\n", slice.size());
   *reinterpret_cast<size_t *>(buf) = slice.size();
   buf += sizeof(size_t);
   std::memcpy(buf, slice.data(), slice.size());
@@ -176,7 +188,9 @@ char *Serializer::PutPrefixLengthSlice(const Slice &slice, char *buf) {
 }
 
 const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
-  size_t size = *reinterpret_cast<const size_t *>(buf);
+  size_t size;
+  std::memcpy(&size, buf, sizeof(size_t));
+  printf("DeSerializing slice with size %d\n", size);
   char *data = new char[size];
   buf += sizeof(size_t);
   std::memcpy(data, buf, size);

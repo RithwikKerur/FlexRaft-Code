@@ -238,7 +238,7 @@ void SerializerTest::TestSerializeRequestVoteReply(bool async) {
   }
 }
 
-void SerializerTest::TestSerializeAppendEntriesArgs(bool async) {
+void SerializerTest::TestSerializeAppendEntriesArgs(bool async) { 
   AppendEntriesArgs args = AppendEntriesArgs{
       static_cast<raft_term_t>(rand()),
       static_cast<raft_node_id_t>(rand()),
@@ -254,16 +254,38 @@ void SerializerTest::TestSerializeAppendEntriesArgs(bool async) {
 
   auto cmp = [](const AppendEntriesArgs &l,
                 const AppendEntriesArgs &r) -> bool {
-    bool hdr_equal =
-        l.term == r.term & l.prev_log_index == r.prev_log_index &
-        l.prev_log_term == r.prev_log_term & l.leader_id == r.leader_id &
-        l.leader_commit == r.leader_commit & l.entry_cnt == r.entry_cnt;
-    if (!hdr_equal || l.entries.size() != r.entries.size()) {
-      return false;
-    }
+                  if (l.term != r.term) {
+                    std::cout << "MISMATCH: term (" << l.term << " != " << r.term << ")" << std::endl;
+                    return false;
+                  }
+                  if (l.prev_log_index != r.prev_log_index) {
+                    std::cout << "MISMATCH: prev_log_index (" << l.prev_log_index << " != " << r.prev_log_index << ")" << std::endl;
+                    return false;
+                  }
+                  if (l.prev_log_term != r.prev_log_term) {
+                    std::cout << "MISMATCH: prev_log_term (" << l.prev_log_term << " != " << r.prev_log_term << ")" << std::endl;
+                    return false;
+                  }
+                  if (l.leader_id != r.leader_id) {
+                    std::cout << "MISMATCH: leader_id (" << l.leader_id << " != " << r.leader_id << ")" << std::endl;
+                    return false;
+                  }
+                  if (l.leader_commit != r.leader_commit) {
+                    std::cout << "MISMATCH: leader_commit (" << l.leader_commit << " != " << r.leader_commit << ")" << std::endl;
+                    return false;
+                  }
+                  if (l.entry_cnt != r.entry_cnt) {
+                    std::cout << "MISMATCH: entry_cnt (" << l.entry_cnt << " != " << r.entry_cnt << ")" << std::endl;
+                    return false;
+                  }
+                  if (l.entries.size() != r.entries.size()) {
+                    std::cout << "MISMATCH: entries.size() (" << l.entries.size() << " != " << r.entries.size() << ")" << std::endl;
+                    return false;
+                  }
 
     for (decltype(l.entries.size()) i = 0; i < l.entries.size(); ++i) {
       if (!(l.entries[i] == r.entries[i])) {
+        std::cout << "Entry " << i << "\n" << std::endl;
         return false;
       }
     }
@@ -380,10 +402,18 @@ TEST_F(SerializerTest, TestSerializeAsync) {
   TestFragmentDataLogEntryTransfer(true);
   TestSerializeRequestVoteArgs(true);
   TestSerializeRequestVoteReply(true);
-  TestSerializeAppendEntriesArgs(true);
-  TestSerializeAppendEntriesReply(true);
-  TestSerializeRequestFragmentsArgs(true);
-  TestSerializeRequestFragmentsReply(true);
+    // Add print statements here to isolate the failure
+    std::cout << "--> STARTING: TestSerializeAppendEntriesArgs" << std::endl;
+    TestSerializeAppendEntriesArgs(true);
+  
+    std::cout << "--> STARTING: TestSerializeAppendEntriesReply" << std::endl;
+    TestSerializeAppendEntriesReply(true);
+  
+    std::cout << "--> STARTING: TestSerializeRequestFragmentsArgs" << std::endl;
+    TestSerializeRequestFragmentsArgs(true);
+  
+    std::cout << "--> STARTING: TestSerializeRequestFragmentsReply" << std::endl;
+    TestSerializeRequestFragmentsReply(true);
 }
 
 } // namespace raft
