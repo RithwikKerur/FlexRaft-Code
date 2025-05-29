@@ -167,6 +167,7 @@ void Serializer::Deserialize(const RCF::ByteBuffer *buffer, RequestFragmentsRepl
 
 char *Serializer::PutPrefixLengthSlice(const Slice &slice, char *buf) {
   *reinterpret_cast<size_t *>(buf) = slice.size();
+  printf("Serializing size %d\n", slice.size());
   buf += sizeof(size_t);
   std::memcpy(buf, slice.data(), slice.size());
   return buf + slice.size();
@@ -174,6 +175,8 @@ char *Serializer::PutPrefixLengthSlice(const Slice &slice, char *buf) {
 
 const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
   size_t size = *reinterpret_cast<const size_t *>(buf);
+  printf("DeSerializing size %d\n", size);
+
   char *data = new char[size];
   buf += sizeof(size_t);
   std::memcpy(data, buf, size);
