@@ -10,44 +10,72 @@
 namespace raft {
 Serializer Serializer::NewSerializer() { return Serializer(); }
 
-char *Serializer::serialize_logentry_helper(const LogEntry *entry, char *dst) {
-  // NOTE: It is ok to simply copy sizeof(LogEntry) here
-  std::memcpy(dst, entry, sizeof(LogEntry));
-  dst += sizeof(LogEntry);
-  dst = PutPrefixLengthSlice(entry->NotEncodedSlice(), dst);
-  dst = PutPrefixLengthSlice(entry->FragmentSlice(), dst);
+char* Serializer::serialize_logentry_helper(const LogEntry* entry, char* dst) {
+  std::memcpy(dst, &entry->term, sizeof(entry->term));
+    dst += sizeof(entry->term);
+    std::memcpy(dst, &entry->index, sizeof(entry->index));
+    dst += sizeof(entry->index);
+    std::memcpy(dst, &entry->type, sizeof(entry->type));
+    dst += sizeof(entry->type);
+    std::memcpy(dst, &entry->chunk_info, sizeof(entry->chunk_info));
+    dst += sizeof(entry->chunk_info);
+    std::memcpy(dst, &entry->start_fragment_offset, sizeof(entry->start_fragment_offset));
+    dst += sizeof(entry->start_fragment_offset);
+    std::memcpy(dst, &entry->command_size_, sizeof(entry->command_size_));
+    dst += sizeof(entry->command_size_);
 
+  // always write the “not encoded” slice
+  dst = PutPrefixLengthSlice(entry->NotEncodedSlice(), dst);
+
+  // only write these when we really have fragments
   if (entry->Type() == kFragments) {
-    printf("Serializing fragment entry\n");
+    dst = PutPrefixLengthSlice(entry->FragmentSlice(),  dst);
     dst = PutPrefixLengthSlice(entry->ExtraFragment(), dst);
   }
+
   return dst;
 }
 
-const char *Serializer::deserialize_logentry_helper(const char *src, LogEntry *entry) {
-  std::memcpy(entry, src, sizeof(LogEntry));
-  src += sizeof(LogEntry);
-  Slice not_encoded, frag;
+const char* Serializer::deserialize_logentry_helper(const char* src, LogEntry* entry) {
+  std::memcpy(&entry->term, src, sizeof(entry->term));
+    src += sizeof(entry->term);
+
+    std::memcpy(&entry->index, src, sizeof(entry->index));
+    src += sizeof(entry->index);
+
+    std::memcpy(&entry->type, src, sizeof(entry->type));
+    src += sizeof(entry->type);
+
+    std::memcpy(&entry->chunk_info, src, sizeof(entry->chunk_info));
+    src += sizeof(entry->chunk_info);
+
+    std::memcpy(&entry->start_fragment_offset, src, sizeof(entry->start_fragment_offset));
+    src += sizeof(entry->start_fragment_offset);
+
+    std::memcpy(&entry->command_size_, src, sizeof(entry->command_size_));
+    src += sizeof(entry->command_size_);
+
+
+  Slice not_encoded;
   src = ParsePrefixLengthSlice(src, &not_encoded);
-  src = ParsePrefixLengthSlice(src, &frag);
-
   entry->SetNotEncodedSlice(not_encoded);
-  entry->SetFragmentSlice(frag);
+
   if (entry->Type() == kFragments) {
-    printf("DeSerializing fragment entry\n");
-
-    Slice extraFrag;
-    src = ParsePrefixLengthSlice(src, &extraFrag);
-    entry->SetExtraFragment(extraFrag);
-  }
-
-  if (entry->Type() == kNormal) {
-    printf("DeSerializing normal entry");
-
+    // read exactly two more slices
+    Slice frag, extra;
+    src = ParsePrefixLengthSlice(src, &frag);
+    src = ParsePrefixLengthSlice(src, &extra);
+    entry->SetFragmentSlice(frag);
+    entry->SetExtraFragment(extra);
+  } else {
+    // no fragments for kNormal
     entry->SetCommandData(not_encoded);
   }
+
   return src;
 }
+
+
 
 const char *Serializer::deserialize_logentry_withbound(const char *src, size_t len,
                                                        LogEntry *entry) {
@@ -180,17 +208,17 @@ void Serializer::Deserialize(const RCF::ByteBuffer *buffer, RequestFragmentsRepl
 }
 
 char *Serializer::PutPrefixLengthSlice(const Slice &slice, char *buf) {
-  printf("Serializing slice with size %d\n", slice.size());
   *reinterpret_cast<size_t *>(buf) = slice.size();
+  printf("Serializing size %d\n", slice.size());
   buf += sizeof(size_t);
   std::memcpy(buf, slice.data(), slice.size());
   return buf + slice.size();
 }
 
 const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
-  size_t size;
-  std::memcpy(&size, buf, sizeof(size_t));
-  printf("DeSerializing slice with size %d\n", size);
+  size_t size = *reinterpret_cast<const size_t *>(buf);
+  printf("DeSerializing size %d\n", size);
+
   char *data = new char[size];
   buf += sizeof(size_t);
   std::memcpy(data, buf, size);

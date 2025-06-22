@@ -17,6 +17,20 @@
 
 namespace raft {
 
+  std::string format_reply_to_string(const AppendEntriesReply& reply) {
+    std::stringstream ss;
+    ss << "AppendEntriesReply { "
+       << "term: " << reply.term
+       << ", success: " << (reply.success ? "true" : "false")
+       << ", expect_index: " << reply.expect_index
+       << ", reply_id: " << reply.reply_id
+       << ", chunk_info_cnt: " << reply.chunk_info_cnt
+       << " }";
+    // Note: This simple version doesn't print the contents of the vector.
+    // A more complex version could loop through 'chunk_infos'.
+    return ss.str();
+  }
+
 // A storage implementation that simulates a persister, we need this class to construct
 // pre-exists log entries during test
 class StorageMock : public MemStorage {
@@ -125,7 +139,8 @@ void RaftAppendEntriesTest::RunSingleTest(const TestCase& test) {
 
   AppendEntriesReply reply;
   raft_state->Process(const_cast<AppendEntriesArgs*>(&test.args), &reply);
-
+  printf("Expected: %s\n", format_reply_to_string(test.expect_reply).c_str());
+  printf("Got: %s\n", format_reply_to_string(reply).c_str());
   ASSERT_TRUE(AppendEntriesReplyEqual(test.expect_reply, reply));
   ASSERT_EQ(test.expect_state, TestRaftState::CollectRaftState(raft_state));
 

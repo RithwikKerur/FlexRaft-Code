@@ -28,9 +28,14 @@ class Slice {
   }
 
   Slice() = default;
-  Slice(const Slice &) = default;
-  Slice &operator=(const Slice &) = default;
-
+  Slice(const Slice& other)
+    : data_(nullptr), size_(other.size_) // Initialize members
+{
+    if (size_ > 0) {
+        data_ = new char[size_]; // Allocate NEW memory
+        std::memcpy(data_, other.data_, size_); // Copy the CONTENT
+    }
+}
   auto data() const -> char * { return data_; }
   auto size() const -> size_t { return size_; }
   auto valid() const -> bool { return data_ != nullptr && size_ > 0; }
@@ -46,6 +51,32 @@ class Slice {
     }
     return size() > slice.size() ? 1 : -1;
   }
+  auto operator==(const Slice& other) const {
+    // First, if the sizes are different, they can't be equal.
+    if (this->size() != other.size()) {
+      return false;
+    }
+  
+    // If both are empty, they are equal.
+    if (this->size() == 0) {
+      return true;
+    }
+  
+    // Otherwise, compare the memory content byte-for-byte.
+    return std::memcmp(this->data(), other.data(), this->size()) == 0;
+  }
+
+  auto operator=(const Slice& other) {
+    // Handle self-assignment (e.g., mySlice = mySlice;)
+    if (this == &other) {
+        return *this;
+    }
+    Slice temp(other);
+    std::swap(this->data_, temp.data_);
+    std::swap(this->size_, temp.size_);
+
+    return *this;
+}
 
  private:
   char *data_ = nullptr;

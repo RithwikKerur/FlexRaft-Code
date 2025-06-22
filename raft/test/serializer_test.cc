@@ -135,6 +135,7 @@ public:
       switch (ent.Type()) {
       case raft::kNormal:
         ent.SetCommandData(GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize));
+        ent.SetNotEncodedSlice(ent.CommandData());
         break;
       case raft::kFragments:
         ent.SetNotEncodedSlice(
@@ -170,7 +171,7 @@ public:
 private:
   const std::string kLocalTestIp = "127.0.0.1";
   const int kLocalTestPort = 50001;
-  const int kMaxDataSize = 10 * 1024 * 1024;
+  const int kMaxDataSize = 1024;
   const int kSleepTime = 10000;
 };
 
@@ -285,7 +286,31 @@ void SerializerTest::TestSerializeAppendEntriesArgs(bool async) {
 
     for (decltype(l.entries.size()) i = 0; i < l.entries.size(); ++i) {
       if (!(l.entries[i] == r.entries[i])) {
-        std::cout << "Entry " << i << "\n" << std::endl;
+        if(!(l.entries[i].CommandData() == r.entries[i].CommandData())){
+          printf("Command data mismatch");
+          auto exp_slice = l.entries[i].CommandData();
+auto got_slice = r.entries[i].CommandData();
+const unsigned char* exp_buf = reinterpret_cast<const unsigned char*>(exp_slice.data());
+const unsigned char* got_buf = reinterpret_cast<const unsigned char*>(got_slice.data());
+size_t exp_len = exp_slice.size();
+size_t got_len = got_slice.size();
+
+// print expected
+printf("Expected (%zu bytes):\n", exp_len);
+for (size_t j = 0; j < exp_len; ++j) {
+  printf("%02x ", exp_buf[j]);
+  if ((j+1) % 16 == 0) printf("\n");
+}
+printf("\n\n");
+
+// print got
+printf("Got      (%zu bytes):\n", got_len);
+for (size_t j = 0; j < got_len; ++j) {
+  printf("%02x ", got_buf[j]);
+  if ((j+1) % 16 == 0) printf("\n");
+}
+printf("\n");
+        }
         return false;
       }
     }

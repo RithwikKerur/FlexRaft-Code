@@ -61,6 +61,7 @@ struct AppendEntriesReply {
 
   int chunk_info_cnt;
   std::vector<ChunkInfo> chunk_infos;
+
 };
 
 struct RequestFragmentsArgs {
