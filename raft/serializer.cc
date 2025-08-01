@@ -245,7 +245,8 @@ size_t Serializer::getSerializeSize(const LogEntry &entry) {
   size_t ret = sizeof(LogEntry);
   ret += entry.NotEncodedSlice().size();
   ret += entry.FragmentSlice().size();
-  ret += 2 * sizeof(size_t);
+  ret += entry.ExtraFragment().size();
+  ret += 3 * sizeof(size_t);
   // Make size 4B aligment
   return (ret - 1) / 4 * 4 + 4;
 }

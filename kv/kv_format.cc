@@ -35,7 +35,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
   if (ent.Type() == raft::kNormal) {
     auto bytes = ent.CommandData().data();
     std::memcpy(request, bytes, RequestHdrSize());
-
+    int prefixOffset = PrefixLengthOffsetSize(bytes+RequestHdrSize());
     bytes = GetKeyFromPrefixLengthFormat(bytes + RequestHdrSize(), &(request->key));
 
     char tmp_data[12];
@@ -47,10 +47,12 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
       request->value.push_back(tmp_data[i]);
     }
 
-    std::printf( "RaftEnt To Request: k=%d,m=%d,frag_id=%d", 1, 0, 0);
+    std::printf( "RaftEnt To Request: k=%d,m=%d,frag_id=%d\n", 1, 0, 0);
 
     // value would be the prefix length key format
-    auto remaining_size = ent.CommandData().size() - (bytes - ent.CommandData().data());
+    auto remaining_size = ent.CommandData().size() - prefixOffset - RequestHdrSize();
+    printf("Command Data (%d, %d) Size: %d\n", ent.Term(), ent.Index(), ent.CommandData().size());
+    printf("Remaining size: %d\n", remaining_size);
     request->value.append(bytes, remaining_size);
   } else {
     // construct the header and key
@@ -108,6 +110,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request) {
     auto bytes = ent.CommandData().data();
     std::memcpy(request, bytes, RequestHdrSize());
 
+    int prefixOffset = PrefixLengthOffsetSize(bytes+RequestHdrSize());
     bytes = GetKeyFromPrefixLengthFormat(bytes + RequestHdrSize(), &(request->key));
 
     char tmp_data[12];
@@ -122,7 +125,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request) {
     std::printf( "RaftEnt To Request: k=%d,m=%d,frag_id=%d", 1, 0, 0);
 
     // value would be the prefix length key format
-    auto remaining_size = ent.CommandData().size() - (bytes - ent.CommandData().data());
+    auto remaining_size = ent.CommandData().size() - prefixOffset - RequestHdrSize();
     request->value.append(bytes, remaining_size);
   } else {
     // construct the header and key

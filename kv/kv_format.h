@@ -29,7 +29,14 @@ inline char *MakePrefixLengthKey(const std::string &s, char *buf) {
 
 inline char *GetKeyFromPrefixLengthFormat(char *buf, std::string *key) {
   int key_size = *reinterpret_cast<int *>(buf);
+  printf("Key Size: %d\n", key_size);
   *key = std::string(buf + sizeof(int), key_size);
+  printf("Key = %s\n", key);
   return buf + sizeof(int) + key_size;
+}
+
+inline int PrefixLengthOffsetSize(char *buf){
+  int key_size = *reinterpret_cast<int *>(buf);
+  return key_size + sizeof(int);
 }
 }  // namespace kv

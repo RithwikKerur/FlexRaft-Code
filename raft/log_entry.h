@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <string>
 
-#include "SF/Archive.hpp"
+#include "../RCF/include/SF/Archive.hpp"
 #include "raft_type.h"
 
 namespace raft {

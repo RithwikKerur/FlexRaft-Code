@@ -909,7 +909,9 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
   LOG(util::kRaft, "S%d Encode I%d T%d K%d M%d", id_, raft_index, stripe->raft_term, k, m);
   Encoder::EncodingResults results;
   auto data_to_encode = ent->CommandData().data() + ent->StartOffset();
+  printf("Start Offset: %d\n", ent->StartOffset());
   auto datasize_to_encode = ent->CommandData().size() - ent->StartOffset();
+  printf("datasize_to_encode: %d\n", datasize_to_encode);
   Slice encode_slice = Slice(data_to_encode, datasize_to_encode);
   bool backup = false;
   if(live_servers < k+m){

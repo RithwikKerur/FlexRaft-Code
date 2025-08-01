@@ -1,0 +1,2 @@
+/usr/bin/ar qc libkv.a CMakeFiles/kv.dir/type.cc.o CMakeFiles/kv.dir/config.cc.o CMakeFiles/kv.dir/kv_format.cc.o CMakeFiles/kv.dir/storage_engine.cc.o CMakeFiles/kv.dir/kv_server.cc.o CMakeFiles/kv.dir/rpc.cc.o CMakeFiles/kv.dir/kv_node.cc.o CMakeFiles/kv.dir/client.cc.o
+/usr/bin/ranlib libkv.a
