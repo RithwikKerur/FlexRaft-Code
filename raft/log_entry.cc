@@ -81,9 +81,29 @@ auto operator==(const LogEntry &lhs, const LogEntry &rhs) -> bool {
   }
 
   auto lhs_frag_data = lhs.FragmentSlice(), rhs_frag_data = rhs.FragmentSlice();
-  auto frag_equal = !lhs_frag_data.valid() && !rhs_frag_data.valid();
-  if (lhs_frag_data.valid() && rhs_frag_data.valid()) {
-    frag_equal = lhs_frag_data.compare(rhs_frag_data) == 0;
+  auto frag_equal = lhs_frag_data.empty() && rhs_frag_data.empty();
+  if (!lhs_frag_data.empty() && !rhs_frag_data.empty()) {
+    // Compare vector sizes first
+    if (lhs_frag_data.size() != rhs_frag_data.size()) {
+      frag_equal = false;
+    } else {
+      // Compare each slice in the vectors
+      frag_equal = true;
+      for (size_t i = 0; i < lhs_frag_data.size(); ++i) {
+        if (!lhs_frag_data[i].valid() || !rhs_frag_data[i].valid()) {
+          if (lhs_frag_data[i].valid() != rhs_frag_data[i].valid()) {
+            frag_equal = false;
+            break;
+          }
+        } else if (lhs_frag_data[i].compare(rhs_frag_data[i]) != 0) {
+          frag_equal = false;
+          break;
+        }
+      }
+    }
+  } else if (lhs_frag_data.empty() != rhs_frag_data.empty()) {
+    // One is empty, the other is not
+    frag_equal = false;
   }
   return frag_equal;
 }

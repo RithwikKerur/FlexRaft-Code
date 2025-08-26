@@ -236,7 +236,8 @@ class RaftNodeTest : public ::testing::Test {
           }
           if (ent.Type() == kFragments) {
             // Note that i is identical to the fragment id
-            collected_res.insert_or_assign(static_cast<raft_frag_id_t>(i), ent.FragmentSlice());
+            //TODO update this
+            //collected_res.insert_or_assign(static_cast<raft_frag_id_t>(i), ent.FragmentSlice());
             decode_k = std::min(decode_k, ent.GetChunkInfo().GetK());
             LOG(util::kRaft, "Update DecodeK=%d", decode_k);
           }

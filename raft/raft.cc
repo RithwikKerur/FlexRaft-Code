@@ -911,8 +911,8 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
   auto datasize_to_encode = ent->CommandData().size() - ent->StartOffset();
   Slice encode_slice = Slice(data_to_encode, datasize_to_encode);
   encoder_.EncodeSlice(encode_slice, k, m, &results);
-
-  for (const auto &[frag_id, frag] : results) {
+  
+  for (int i = 0; i < GetClusterServerNumber(); i++){
     LogEntry encoded_ent;
     encoded_ent.SetIndex(raft_index);
     encoded_ent.SetTerm(stripe->raft_term);
@@ -922,8 +922,11 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
 
     encoded_ent.SetCommandLength(ent->CommandLength());
     encoded_ent.SetNotEncodedSlice(Slice(ent->CommandData().data(), ent->StartOffset()));
-    encoded_ent.SetFragmentSlice(frag);
-    stripe->fragments[frag_id] = encoded_ent;
+    std::vector<Slice> slices;
+    for (int j = 0; j < k; j++){
+      slices.push_back(results.at(i*k + j));
+    }
+    stripe->fragments[i] = encoded_ent;
   }
 }
 
@@ -957,7 +960,7 @@ bool RaftState::DecodingRaftEntry(Stripe *stripe, LogEntry *ent) {
   auto data = new char[complete_ent_size + 16];
   std::memcpy(data, stripe->collected_fragments[id].NotEncodedSlice().data(),
               stripe->collected_fragments[id].NotEncodedSlice().size());
-
+    /*
   Encoder::EncodingResults input;
   // for (const auto &ent : stripe->collected_fragments) {
   // input.insert({ent.GetVersion().GetFragmentId(), ent.FragmentSlice()});
@@ -977,7 +980,8 @@ bool RaftState::DecodingRaftEntry(Stripe *stripe, LogEntry *ent) {
     delete[] data;
     return false;
   }
-
+  */
+ //TODO implement Decode raft entry 
   int origin_size = stripe->collected_fragments[id].CommandLength();
 
   ent->SetIndex(stripe->raft_index);
@@ -1000,8 +1004,8 @@ void RaftState::ReplicateNewProposeEntry(raft_index_t raft_index) {
   // k = N'- F, m = N - k where N is fixed
   // Makes sure there are totally N chunks and each of these chunks is mapped to
   // a certain follower
-  raft_encoding_param_t encode_k = live_servers - livenessLevel();
-  raft_encoding_param_t encode_m = GetClusterServerNumber() - encode_k;
+  raft_encoding_param_t encode_k = GetClusterServerNumber() - livenessLevel();
+  raft_encoding_param_t encode_m = GetClusterServerNumber()*encode_k;
 
   LOG(util::kRaft, "S%d Estimates %d Alive Servers K:%d M:%d", id_, live_servers, encode_k,
       encode_m);

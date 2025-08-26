@@ -140,7 +140,7 @@ public:
         ent.SetNotEncodedSlice(
             GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize));
         ent.SetFragmentSlice(
-            GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize));
+            {GenerateRandomSlice(kMaxDataSize / 2, kMaxDataSize)});
         break;
       case raft::kTypeMax:
         assert(false);

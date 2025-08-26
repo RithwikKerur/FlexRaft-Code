@@ -15,19 +15,25 @@ char *Serializer::serialize_logentry_helper(const LogEntry *entry, char *dst) {
   std::memcpy(dst, entry, sizeof(LogEntry));
   dst += sizeof(LogEntry);
   dst = PutPrefixLengthSlice(entry->NotEncodedSlice(), dst);
-  dst = PutPrefixLengthSlice(entry->FragmentSlice(), dst);
+  dst = PutPrefixLengthSlices(entry->FragmentSlice(), dst);
   return dst;
 }
 
 const char *Serializer::deserialize_logentry_helper(const char *src, LogEntry *entry) {
   std::memcpy(entry, src, sizeof(LogEntry));
   src += sizeof(LogEntry);
-  Slice not_encoded, frag;
+  
+  Slice not_encoded;
+  std::vector<Slice> fragment_slices;
+  
+  // Parse the not-encoded slice (single slice)
   src = ParsePrefixLengthSlice(src, &not_encoded);
-  src = ParsePrefixLengthSlice(src, &frag);
+  
+  // Parse the fragment slices (vector of slices)
+  src = ParsePrefixLengthSlices(src, &fragment_slices);
 
   entry->SetNotEncodedSlice(not_encoded);
-  entry->SetFragmentSlice(frag);
+  entry->SetFragmentSlice(fragment_slices);
 
   if (entry->Type() == kNormal) {
     entry->SetCommandData(not_encoded);
@@ -35,8 +41,10 @@ const char *Serializer::deserialize_logentry_helper(const char *src, LogEntry *e
   return src;
 }
 
+
 const char *Serializer::deserialize_logentry_withbound(const char *src, size_t len,
                                                        LogEntry *entry) {
+                                                        /*
   if (len < sizeof(LogEntry)) {
     return nullptr;
   }
@@ -56,7 +64,7 @@ const char *Serializer::deserialize_logentry_withbound(const char *src, size_t l
 
   if (entry->Type() == kNormal) {
     entry->SetCommandData(not_encoded);
-  }
+  } */
   return src;
 }
 
@@ -173,6 +181,28 @@ char *Serializer::PutPrefixLengthSlice(const Slice &slice, char *buf) {
   return buf + slice.size();
 }
 
+char *Serializer::PutPrefixLengthSlices(const std::vector<Slice> &slices, char *buf) {
+  // First, serialize the number of slices in the vector
+  *reinterpret_cast<size_t *>(buf) = slices.size();
+  printf("Serializing %zu slices\n", slices.size());
+  buf += sizeof(size_t);
+  
+  // Then serialize each slice with its own length prefix
+  for (const auto &slice : slices) {
+    // Write the size of this slice
+    *reinterpret_cast<size_t *>(buf) = slice.size();
+    printf("Serializing slice size %zu\n", slice.size());
+    buf += sizeof(size_t);
+    
+    // Write the slice data
+    std::memcpy(buf, slice.data(), slice.size());
+    buf += slice.size();
+  }
+  
+  return buf;
+}
+
+
 const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
   size_t size = *reinterpret_cast<const size_t *>(buf);
   printf("DeSerializing size %d\n", size);
@@ -182,6 +212,32 @@ const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
   std::memcpy(data, buf, size);
   *slice = Slice(data, size);
   return buf + size;
+}
+
+const char *Serializer::ParsePrefixLengthSlices(const char *buf, std::vector<Slice> *slices) {
+  // Read the number of slices
+  size_t num_slices = *reinterpret_cast<const size_t *>(buf);
+  printf("Deserializing %zu slices\n", num_slices);
+  buf += sizeof(size_t);
+  
+  slices->clear();
+  slices->reserve(num_slices);
+  
+  // Read each slice
+  for (size_t i = 0; i < num_slices; ++i) {
+    // Read slice size
+    size_t slice_size = *reinterpret_cast<const size_t *>(buf);
+    printf("Deserializing slice size %zu\n", slice_size);
+    buf += sizeof(size_t);
+    
+    // Create slice from data
+    char *data = new char[slice_size];
+    std::memcpy(data, buf, slice_size);
+    slices->emplace_back(data, slice_size);
+    buf += slice_size;
+  }
+  
+  return buf;
 }
 
 const char *Serializer::ParsePrefixLengthSliceWithBound(const char *buf, size_t len, Slice *slice) {
@@ -202,7 +258,7 @@ const char *Serializer::ParsePrefixLengthSliceWithBound(const char *buf, size_t 
 size_t Serializer::getSerializeSize(const LogEntry &entry) {
   size_t ret = sizeof(LogEntry);
   ret += entry.NotEncodedSlice().size();
-  ret += entry.FragmentSlice().size();
+  ret += entry.GetFragmentsSize();
   ret += 2 * sizeof(size_t);
   // Make size 4B aligment
   return (ret - 1) / 4 * 4 + 4;

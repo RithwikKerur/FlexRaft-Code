@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <string>
-
+#include <vector>
 #include "SF/Archive.hpp"
 #include "raft_type.h"
 
@@ -89,8 +89,17 @@ class LogEntry {
   }
   void SetNotEncodedSlice(const Slice &slice) { not_encoded_slice_ = slice; }
 
-  auto FragmentSlice() const -> Slice { return Type() == kNormal ? Slice() : fragment_slice_; }
-  void SetFragmentSlice(const Slice &slice) { fragment_slice_ = slice; }
+  auto FragmentSlice() const -> std::vector<Slice> { return Type() == kNormal ? std::vector<Slice>() : fragment_slices; }
+  void SetFragmentSlice(const std::vector<Slice> &slice) { fragment_slices = slice; }
+
+  auto GetFragmentsSize() const -> size_t {
+    size_t total_size = 0;
+    for(const Slice s: fragment_slices){
+      total_size+= s.size();
+    }
+    return total_size;
+  }
+
 
   // Serialization function required by RCF
   // void serialize(SF::Archive &ar);
@@ -123,7 +132,7 @@ class LogEntry {
 
   Slice command_data_;       // Spcified by user, valid iff type = normal
   Slice not_encoded_slice_;  // Command data not being encoded
-  Slice fragment_slice_;     // Fragments of encoded data
+  std::vector<Slice> fragment_slices;     // Fragments of encoded data
 };
 
 auto operator==(const LogEntry &lhs, const LogEntry &rhs) -> bool;

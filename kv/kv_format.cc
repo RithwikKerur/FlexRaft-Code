@@ -60,7 +60,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
 
     // Construct the value, in the following format:
     // k, m, fragment_id, value_contents
-    request->value.reserve(sizeof(int) * 3 + ent.FragmentSlice().size());
+    request->value.reserve(sizeof(int) * 3 + ent.GetFragmentsSize());
 
     char tmp_data[12];
     int k = ent.GetChunkInfo().GetK();
@@ -75,10 +75,14 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
       request->value.push_back(tmp_data[i]);
     }
 
-    std::printf("Fragment Size %d \n", ent.FragmentSlice().size());
+    std::printf("Fragment Size %d \n", ent.GetFragmentsSize());
 
     // Append the value contents
-    request->value.append(ent.FragmentSlice().data(), ent.FragmentSlice().size());
+    auto fragment_slices = ent.FragmentSlice();
+
+    for (const auto& slice : fragment_slices) {
+      request->value.append(slice.data(), slice.size());
+  }
   }
 }
 
@@ -111,7 +115,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request) {
 
     // Construct the value, in the following format:
     // k, m, fragment_id, value_contents
-    request->value.reserve(sizeof(int) * 3 + ent.FragmentSlice().size());
+    request->value.reserve(sizeof(int) * 3 + ent.GetFragmentsSize());
 
     char tmp_data[12];
     // *reinterpret_cast<int *>(tmp_data) = ent.GetVersion().GetK();
@@ -130,8 +134,9 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request) {
     }
 
     // Append the value contents
-    request->value.append(ent.FragmentSlice().data(), ent.FragmentSlice().size());
-  }
+    for (const auto& slice : ent.FragmentSlice()) {
+      request->value.append(slice.data(), slice.size());
+  }  }
 }
 
 }  // namespace kv

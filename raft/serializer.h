@@ -3,6 +3,7 @@
 #include "log_entry.h"
 #include "raft_struct.h"
 #include "raft_type.h"
+#include "vector"
 
 namespace raft {
 class Serializer {
@@ -42,7 +43,11 @@ class Serializer {
   // Put/Parse a slice in prefix-length format at specified buf position and
   // returns with a pointer to the next position
   char *PutPrefixLengthSlice(const Slice &slice, char *buf);
+
+  char *PutPrefixLengthSlices(const std::vector<Slice> &slices, char *buf);
+
   const char *ParsePrefixLengthSlice(const char *buf, Slice *slice);
+  const char *ParsePrefixLengthSlices(const char *buf, std::vector<Slice> *slices);
   const char *ParsePrefixLengthSliceWithBound(const char *buf, size_t len, Slice *slice);
 
   char *serialize_logentry_helper(const LogEntry *entry, char *dst);
