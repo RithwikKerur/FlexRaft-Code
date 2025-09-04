@@ -11,17 +11,56 @@ namespace raft {
 Serializer Serializer::NewSerializer() { return Serializer(); }
 
 char *Serializer::serialize_logentry_helper(const LogEntry *entry, char *dst) {
-  // NOTE: It is ok to simply copy sizeof(LogEntry) here
-  std::memcpy(dst, entry, sizeof(LogEntry));
-  dst += sizeof(LogEntry);
+  // Serialize basic fields individually instead of copying entire struct
+  // to avoid copying invalid pointers from Slice and vector objects
+  
+  // Serialize basic data members
+  std::memcpy(dst, &entry->term, sizeof(raft_term_t));
+  dst += sizeof(raft_term_t);
+  
+  std::memcpy(dst, &entry->index, sizeof(raft_index_t));
+  dst += sizeof(raft_index_t);
+  
+  std::memcpy(dst, &entry->type, sizeof(raft_entry_type));
+  dst += sizeof(raft_entry_type);
+  
+  std::memcpy(dst, &entry->chunk_info, sizeof(ChunkInfo));
+  dst += sizeof(ChunkInfo);
+  
+  std::memcpy(dst, &entry->start_fragment_offset, sizeof(int));
+  dst += sizeof(int);
+  
+  std::memcpy(dst, &entry->command_size_, sizeof(int));
+  dst += sizeof(int);
+  
+  // Serialize the slice data
   dst = PutPrefixLengthSlice(entry->NotEncodedSlice(), dst);
   dst = PutPrefixLengthSlices(entry->FragmentSlice(), dst);
   return dst;
 }
 
 const char *Serializer::deserialize_logentry_helper(const char *src, LogEntry *entry) {
-  std::memcpy(entry, src, sizeof(LogEntry));
-  src += sizeof(LogEntry);
+  // Deserialize basic fields individually instead of copying entire struct
+  // to avoid copying invalid pointers from Slice and vector objects
+  
+  // Deserialize basic data members
+  std::memcpy(&entry->term, src, sizeof(raft_term_t));
+  src += sizeof(raft_term_t);
+  
+  std::memcpy(&entry->index, src, sizeof(raft_index_t));
+  src += sizeof(raft_index_t);
+  
+  std::memcpy(&entry->type, src, sizeof(raft_entry_type));
+  src += sizeof(raft_entry_type);
+  
+  std::memcpy(&entry->chunk_info, src, sizeof(ChunkInfo));
+  src += sizeof(ChunkInfo);
+  
+  std::memcpy(&entry->start_fragment_offset, src, sizeof(int));
+  src += sizeof(int);
+  
+  std::memcpy(&entry->command_size_, src, sizeof(int));
+  src += sizeof(int);
   
   Slice not_encoded;
   std::vector<Slice> fragment_slices;
@@ -256,11 +295,29 @@ const char *Serializer::ParsePrefixLengthSliceWithBound(const char *buf, size_t 
 }
 
 size_t Serializer::getSerializeSize(const LogEntry &entry) {
-  size_t ret = sizeof(LogEntry);
-  ret += entry.NotEncodedSlice().size();
-  ret += entry.GetFragmentsSize();
-  ret += 2 * sizeof(size_t);
-  // Make size 4B aligment
+  // Calculate size based on individual fields, not sizeof(LogEntry)
+  size_t ret = 0;
+  
+  // Basic data members
+  ret += sizeof(raft_term_t);           // term
+  ret += sizeof(raft_index_t);          // index
+  ret += sizeof(raft_entry_type);       // type
+  ret += sizeof(ChunkInfo);             // chunk_info
+  ret += sizeof(int);                   // start_fragment_offset
+  ret += sizeof(int);                   // command_size_
+  
+  // Slice data with length prefixes
+  ret += sizeof(size_t) + entry.NotEncodedSlice().size();  // not_encoded slice
+  
+  // Fragment slices with length prefixes
+  ret += sizeof(size_t);  // number of fragment slices
+  for (const auto &slice : entry.FragmentSlice()) {
+    ret += sizeof(size_t) + slice.size();  // each slice with its size prefix
+  }
+  
+  printf("LogEntry Fragments size %zu\n", entry.GetFragmentsSize());
+  
+  // Make size 4B alignment
   return (ret - 1) / 4 * 4 + 4;
 }
 

@@ -572,22 +572,25 @@ void RaftState::tryUpdateCommitIndex() {
       }
       // Debug:
       // ------------------------------------------------------------------------------
+      /*
       LOG(util::kRaft, "S%d Last Encoding K: %d S%d REPLY VERSION: %s", id_, commit_require_k, id,
           node->matchChunkInfo[N].ToString().c_str());
       // ------------------------------------------------------------------------------
       if (node->matchChunkInfo[N].GetK() == commit_require_k) {
         // The follower replica information matches the last encoding k
-        agree_cnt += 1;
+        
       }
+        */
+       agree_cnt += 1;
     }
 
     // Debug:
     // ---------------------------------------------------------------------------------
     LOG(util::kRaft, "S%d I%d COMMIT REQUIRE %d, GET %d", id_, N,
-        commit_require_k + livenessLevel(), agree_cnt);
+        livenessLevel(), agree_cnt);
     // ---------------------------------------------------------------------------------
 
-    if (agree_cnt >= commit_require_k + livenessLevel() &&
+    if (agree_cnt >= livenessLevel() &&
         lm_->GetSingleLogEntry(N)->Term() == CurrentTerm()) {
       SetCommitIndex(N);
       // Index N is committed, no need to track them any more
@@ -925,7 +928,9 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
     std::vector<Slice> slices;
     for (int j = 0; j < k; j++){
       slices.push_back(results.at(i*k + j));
+      LOG(util::kRaft, "Adding slice %d to node %d", (i*k)+j, i);
     }
+    encoded_ent.SetFragmentSlice(slices);
     stripe->fragments[i] = encoded_ent;
   }
 }
@@ -1076,9 +1081,10 @@ void RaftState::MaybeReEncodingAndReplicate() {
   LOG(util::kRaft, "S%d MAY REENCODE ENTRIES", id_);
 
   auto live_servers = live_monitor_.LiveNumber();
-  raft_encoding_param_t encode_k = live_servers - livenessLevel();
-  raft_encoding_param_t encode_m = GetClusterServerNumber() - encode_k;
+  raft_encoding_param_t encode_k = GetClusterServerNumber() - livenessLevel();
+  raft_encoding_param_t encode_m = GetClusterServerNumber()*encode_k;
   LOG(util::kRaft, "S%d Estimate %d Server Alive K:%d M:%d", id_, live_servers, encode_k, encode_m);
+
 
   // Step1: ReEncoding all necessary entries from CommitIndex() + 1 to
   // LastIndex()
@@ -1255,7 +1261,7 @@ void RaftState::sendAppendEntries(raft_node_id_t peer) {
   auto next_index = raft_peer_[peer]->NextIndex();
   auto prev_index = next_index - 1;
   auto prev_term = lm_->TermAt(prev_index);
-  auto prev_k = GetLastEncodingK(prev_index);
+  unsigned int prev_k = GetClusterServerNumber() - livenessLevel();
 
   auto args = AppendEntriesArgs{CurrentTerm(), id_, prev_index, prev_term, prev_k, CommitIndex()};
 
@@ -1291,16 +1297,21 @@ bool RaftState::containEntry(raft_index_t raft_index, raft_term_t raft_term,
       raft_term, lm_->LastLogEntryIndex(), raft_index);
 
   if (raft_index == lm_->LastSnapshotIndex()) {
-    return raft_term == lm_->LastSnapshotTerm();
+    LOG(util::kRaft, "LastSnapshotIndex: %d, LastSnapshotTerm: %d", lm_->LastSnapshotIndex(), lm_->LastSnapshotTerm());
+    LOG(util::kRaft, "raft_term: %d, LastSnapshotTerm: %d", raft_term, lm_->LastSnapshotTerm());
+    bool result = (raft_term == lm_->LastSnapshotTerm());
+    LOG(util::kRaft, "Snapshot comparison result: %s", result ? "TRUE" : "FALSE");
+    return result;
   }
   const LogEntry *entry = lm_->GetSingleLogEntry(raft_index);
   if (entry == nullptr || entry->Term() != raft_term) {
     return false;
   }
-
+  /*
   if (entry->GetChunkInfo().GetK() != prev_k) {
+    LOG(util::kRaft, "Chunk info doesn't match  entry: %d, prev_k: %d", entry->GetChunkInfo().GetK(), prev_k);
     return false;
-  }
+  }*/
   return true;
 }
 

@@ -7,6 +7,7 @@
 #include "type.h"
 #include "util.h"
 #include <cstdio>
+#include "log_entry.h"
 
 namespace kv {
 size_t GetRawBytesSizeForRequest(const Request &request) {
@@ -69,20 +70,22 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
     *reinterpret_cast<int *>(tmp_data + 4) = m;
     *reinterpret_cast<int *>(tmp_data + 8) = static_cast<int>(server_id);
 
-    std::printf(" Encoded RaftEnt To Request: k=%d,m=%d,frag_id=%d", k, m, server_id);
+    std::printf(" Encoded RaftEnt To Request: k=%d,m=%d,frag_id=%d\n", k, m, server_id);
 
     for (int i = 0; i < 12; ++i) {
       request->value.push_back(tmp_data[i]);
     }
 
-    std::printf("Fragment Size %d \n", ent.GetFragmentsSize());
 
     // Append the value contents
     auto fragment_slices = ent.FragmentSlice();
+    std::printf("Fragments %d\n", fragment_slices.size());
 
     for (const auto& slice : fragment_slices) {
       request->value.append(slice.data(), slice.size());
-  }
+    }
+    std::printf("Fragment Size %d \n", ent.GetFragmentsSize());
+
   }
 }
 
