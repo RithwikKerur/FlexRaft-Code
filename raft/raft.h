@@ -276,6 +276,16 @@ class RaftState {
   raft_index_t CommitIndex() const { return commit_index_; }
   void SetCommitIndex(raft_index_t raft_index) { commit_index_ = raft_index; }
 
+  raft_index_t Threshold1() const { return threshold_1; }
+  void SetThreshold1(raft_index_t raft_index) { if(raft_index > threshold_1) {threshold_1 = raft_index;} }
+
+  raft_index_t Threshold2() const { return threshold_2; }
+  void SetThreshold2(raft_index_t raft_index) { if(raft_index > threshold_2) {threshold_2 = raft_index;} }
+
+  bool MatchThreshold1(int responses){ return responses >= (3*(peers_.size()+1)+3)/4;}
+  bool MatchThreshold2(int responses){ return responses==(peers_.size()+1);}
+
+
   raft_index_t LastLogIndex() const { return lm_->LastLogEntryIndex(); }
   raft_term_t TermAt(raft_index_t raft_index) const { return lm_->TermAt(raft_index); }
 
@@ -301,6 +311,8 @@ class RaftState {
   // When receiving AppendEntries Reply, the raft peer checks all peers match
   // index condition and may update the commit_index field
   void tryUpdateCommitIndex();
+
+  void UpdateExtendedThresholds();
 
   void tryApplyLogEntries();
 
@@ -448,6 +460,11 @@ class RaftState {
   // machine, does not need persistence
   raft_index_t commit_index_;
   raft_index_t last_applied_;
+
+  //3N/4 threshold
+  raft_index_t threshold_1 = 0;
+  //N threshold
+  raft_index_t threshold_2 = 0;
 
   // Manage all log entries
   LogManager *lm_;

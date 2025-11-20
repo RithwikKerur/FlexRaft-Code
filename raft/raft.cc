@@ -607,6 +607,49 @@ void RaftState::tryUpdateCommitIndex() {
       }
     }
   }
+
+  UpdateExtendedThresholds();
+  LOG(util::kRaft, "Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
+}
+
+void RaftState::UpdateExtendedThresholds() {
+    /*
+    raft_index_t safe_start = std::max(Threshold2(), (raft_index_t)0); 
+    raft_index_t safe_end = std::max(Threshold1(), safe_start);
+
+    for (auto N = safe_start + 1; N <= safe_end; ++N) {
+        
+        int agree_cnt = 1; // self
+        for (auto id : peers_) {
+             auto node = raft_peer_[id];
+             if (node->matchChunkInfo.count(N)) agree_cnt++;
+        }
+
+        if (MatchThreshold2(agree_cnt)) {
+            SetThreshold2(N);
+        }
+    } */
+
+    for (auto N = Threshold2(); N <= CommitIndex(); ++N) {
+        int agree_cnt = 1; // self
+        for (auto id : peers_) {
+             auto node = raft_peer_[id];
+             if (node->matchChunkInfo.count(N)){
+              std::cout << "Node " << id << " agrees (has chunk " << N << ")" << std::endl;
+              agree_cnt++;
+             } 
+        }
+        LOG(util::kRaft, "Agree Count for %d is %d. Total_servers %d", N, agree_cnt, peers_.size());
+        // Check T1
+        if (MatchThreshold1(agree_cnt)) {
+            SetThreshold1(N);
+            
+            // Check T2 (Only if T1 passed, as T2 is stricter)
+            if (MatchThreshold2(agree_cnt)) {
+                SetThreshold2(N);
+            }
+        }
+    }
 }
 
 // TODO: Use a specific thread to commit applied entries to application
