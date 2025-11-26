@@ -36,6 +36,9 @@ struct AppendEntriesArgs {
 
   raft_index_t leader_commit;
 
+  raft_index_t threshold1;
+  raft_index_t threshold2;
+
   int64_t entry_cnt;
   std::vector<LogEntry> entries;
 };

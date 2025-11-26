@@ -246,6 +246,7 @@ void SerializerTest::TestSerializeAppendEntriesArgs(bool async) {
       static_cast<raft_term_t>(rand()),
       static_cast<raft_encoding_param_t>(rand()),
       static_cast<raft_index_t>(rand()),
+      0, 0,
       3,
       {GenerateRandomLogEntry(true, kFragments),
        GenerateRandomLogEntry(true, kFragments),

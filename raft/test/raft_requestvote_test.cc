@@ -406,7 +406,7 @@ TEST_F(RaftElectionTest, TestBecomeLeaderIfWinMajorityReply) {
 
   // Check if heartbeat messages are sent correctly
   auto ref_appendentries_args =
-      AppendEntriesArgs{1, 1, 0, 0, 0, 0, 0, std::vector<LogEntry>()};
+      AppendEntriesArgs{1, 1, 0, 0, 0, 0, 0, 0, 0, std::vector<LogEntry>()};
 
   for (const auto &entry : channel2) {
     ASSERT_TRUE(AppendEntriesArgsEqual(ref_appendentries_args, entry));

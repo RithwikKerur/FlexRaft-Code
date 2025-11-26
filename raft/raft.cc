@@ -195,6 +195,16 @@ void RaftState::Process(AppendEntriesArgs *args, AppendEntriesReply *reply) {
     LOG(util::kRaft, "S%d Update CommitIndex (%d->%d)", id_, old_commit_idx, CommitIndex());
   }
 
+  if (args->threshold1 > Threshold1()) {
+      SetThreshold1(args->threshold1);
+  }
+  if (args->threshold2 > Threshold2()) {
+      SetThreshold2(args->threshold2);
+  }
+
+
+  LOG(util::kRaft, "Current Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
+
   // TODO: Notify applier thread to apply newly committed entries to state
   // machine
 
@@ -1294,7 +1304,7 @@ void RaftState::sendHeartBeat(raft_node_id_t peer) {
 
   LOG(util::kRaft, "S%d send heartbeat to S%d(I%d->I%d)", id_, peer, next_index, next_index);
   auto args = AppendEntriesArgs{CurrentTerm(), id_,           prev_index, prev_term,
-                                prev_k,        CommitIndex(), 0,          std::vector<LogEntry>()};
+                                prev_k,        CommitIndex(), Threshold1(), Threshold2(), 0,          std::vector<LogEntry>()};
 
   rpc_clients_[peer]->sendMessage(args);
 }
@@ -1306,7 +1316,7 @@ void RaftState::sendAppendEntries(raft_node_id_t peer) {
   auto prev_term = lm_->TermAt(prev_index);
   unsigned int prev_k = GetClusterServerNumber() - livenessLevel();
 
-  auto args = AppendEntriesArgs{CurrentTerm(), id_, prev_index, prev_term, prev_k, CommitIndex()};
+  auto args = AppendEntriesArgs{CurrentTerm(), id_, prev_index, prev_term, prev_k, CommitIndex(), Threshold1(), Threshold2()};
 
   auto require_entry_cnt = lm_->LastLogEntryIndex() - prev_index;
   args.entries.reserve(require_entry_cnt);
