@@ -197,9 +197,13 @@ void RaftState::Process(AppendEntriesArgs *args, AppendEntriesReply *reply) {
 
   if (args->threshold1 > Threshold1()) {
       SetThreshold1(args->threshold1);
+      rsm_->SetThreshold1(Threshold1());
+      rsm_->SetFlag(true);
   }
   if (args->threshold2 > Threshold2()) {
       SetThreshold2(args->threshold2);
+      rsm_->SetThreshold2(Threshold2());
+      rsm_->SetFlag(true);
   }
 
 

@@ -110,7 +110,7 @@ enum {
   // sizeof(uint64_t) * 2 + sizeof(raft_node_id_t)
   kAppendEntriesArgsHdrSize = sizeof(raft_term_t) * 2 + 
                                          sizeof(raft_node_id_t) + 
-                                         sizeof(raft_index_t) * 4 + // prev, commit, thresh1, thresh2
+                                         sizeof(raft_index_t) * 4 + 
                                          sizeof(raft_encoding_param_t) + 
                                          sizeof(int64_t),
   kAppendEntriesReplyHdrSize = sizeof(raft_term_t) + sizeof(int) + sizeof(uint32_t) +

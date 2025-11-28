@@ -176,6 +176,9 @@ void KvServer::ApplyRequestCommandThread(KvServer *server) {
 
     std::printf("S%d Apply request(key = %s value = %s) to db", server->Id(), req.key.c_str(), req.value.c_str());
 
+    std::printf("Server Threshold1 %d Threshold2 %d Flag %d \n", server->channel_->GetThreshold1(), server->channel_->GetThreshold2(), server->channel_->GetFlag());
+
+
     std::string get_value;
     KvRequestApplyResult ar = {ent.Term(), kOk, std::string("")};
     switch (req.type) {
