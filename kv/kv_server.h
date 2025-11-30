@@ -77,6 +77,8 @@ class KvServer {
   bool CheckEntryCommitted(const raft::ProposeResult &pr, KvRequestApplyResult *apply);
 
  public:
+ static std::string IndexToKey(int index) ;
+
   // A thread that periodically apply committed raft log entries to KVRsm
   static void ApplyRequestCommandThread(KvServer *server);
 
@@ -138,5 +140,8 @@ class KvServer {
   // Record the RPC stub for each peer kv server. We can only store void* here
   // to avoid circle reference problem
   std::unordered_map<raft::raft_node_id_t, void *> kv_peers_;
+
+  int last_threshold_1 = 0;
+  int last_threshold_2 = 0;
 };
 }  // namespace kv

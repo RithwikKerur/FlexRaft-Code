@@ -134,6 +134,58 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
   }
 }
 
+void TruncateRequestFragments(std::string &raw_data, int target_num_shards) {
+  // 1. Basic Safety Checks
+  if (raw_data.size() < 12) return; // Not enough data for header
+
+  const char *ptr = raw_data.data();
+  size_t total_size = raw_data.size();
+  
+  // Start scanning AFTER the 12-byte header (k, m, id)
+  size_t current_offset = 12;
+  int shards_found = 0;
+
+  // 2. Loop through slices to find the cut-off point
+  for (int i = 0; i < target_num_shards; ++i) {
+    // Check if there is enough space to read the Length Integer (4 bytes)
+    if (current_offset + sizeof(int) > total_size) {
+      break; 
+    }
+
+    // Read the length of the current slice
+    int slice_len = *reinterpret_cast<const int *>(ptr + current_offset);
+
+    // Calculate end of this slice (Offset + LengthHeader + DataLength)
+    size_t next_offset = current_offset + sizeof(int) + slice_len;
+
+    // Check bounds
+    if (next_offset > total_size) {
+      break; 
+    }
+
+    // Advance
+    current_offset = next_offset;
+    shards_found++;
+  }
+
+  // 3. Truncate the string
+  // If target_num_shards was smaller than existing, this chops off the extra bytes.
+  // If target_num_shards was larger, this does nothing (keeps all existing data).
+  raw_data.resize(current_offset);
+
+  // 4. Update the Header 'k' (First 4 bytes)
+  // We overwrite the first integer to match the actual number of shards we kept.
+  // Note: &raw_data[0] gives us a mutable pointer to the string's internal buffer.
+  char* mutable_header = &raw_data[0];
+  *reinterpret_cast<int *>(mutable_header) = shards_found;
+  
+  // Optional: Update 'm' (total servers - k) if your logic requires it
+  // int m = total_servers - shards_found;
+  // *reinterpret_cast<int *>(mutable_header + 4) = m;
+  
+  std::printf("Updated Request in-place: New K=%d, Size=%zu\n", shards_found, raw_data.size());
+}
+
 // Check if a particular propose has been committed and set the ApplyResult
 // struct if it has been committed
 bool KvServer::CheckEntryCommitted(const raft::ProposeResult &pr, KvRequestApplyResult *apply) {
@@ -157,6 +209,12 @@ bool KvServer::CheckEntryCommitted(const raft::ProposeResult &pr, KvRequestApply
   return true;
 }
 
+std::string KvServer::IndexToKey(int index) {
+    char buffer[16]; 
+    std::snprintf(buffer, sizeof(buffer), "key-0%d", index);
+    return std::string(buffer);
+}
+
 void KvServer::ApplyRequestCommandThread(KvServer *server) {
   raft::util::Timer elapse_timer;
   while (!server->exit_.load()) {
@@ -174,10 +232,9 @@ void KvServer::ApplyRequestCommandThread(KvServer *server) {
     // RawBytesToRequest(ent.CommandData().data(), &req);
     RaftEntryToRequest(ent, &req, server->Id(), server->ClusterServerNum());
 
-    std::printf("S%d Apply request(key = %s value = %s) to db", server->Id(), req.key.c_str(), req.value.c_str());
+    std::printf("S%d Apply request(key = %s value = %s) to db\n", server->Id(), req.key.c_str(), req.value.c_str());
 
     std::printf("Server Threshold1 %d Threshold2 %d Flag %d \n", server->channel_->GetThreshold1(), server->channel_->GetThreshold2(), server->channel_->GetFlag());
-
 
     std::string get_value;
     KvRequestApplyResult ar = {ent.Term(), kOk, std::string("")};
@@ -199,15 +256,83 @@ void KvServer::ApplyRequestCommandThread(KvServer *server) {
         assert(0);
     }
 
-    server->applied_index_ = ent.Index();
-
     LOG(raft::util::kRaft, "S%d Apply request(%s) to db Done, APPLY I%d", server->Id(),
         ToString(req).c_str(), server->LastApplyIndex());
+
+    if (server->channel_->GetFlag()) {
+      // 1. Snapshot the new values atomically so they don't change while we loop
+      int new_t1 = server->channel_->GetThreshold1();
+      int new_t2 = server->channel_->GetThreshold2();
+
+      // --- PROCESS THRESHOLD 1 ---
+      // Start at last + 1 so we don't re-process the previously finished index
+      for (int i = server->last_threshold_1 + 1; i <= new_t1; i++) {
+        std::string index = server->IndexToKey(i); // Ensure correct scope
+        std::string value;
+        
+        std::printf("T1 Update: Looking up key %s\n", index.c_str());
+        
+        bool found = server->db_->Get(index, &value);
+        if (found) {
+          size_t old_size = value.size();
+          
+          // Modify 'value' in-place
+          TruncateRequestFragments(value, 2);
+          
+          bool success = server->db_->Put(index, value); 
+          
+          if (!success) {
+              std::cerr << "CRITICAL ERROR: Failed to write key " << index << " to DB!" << std::endl;
+          } else {
+              std::printf("Successfully stored %s (%zu bytes)\n", index.c_str(), value.size());
+          }
+        } else {
+          std::printf("Key %s not found during T1 update.\n", index.c_str());
+        }
+      }
+      // Update local tracker
+      server->last_threshold_1 = new_t1;
+
+      // --- PROCESS THRESHOLD 2 ---
+      for (int i = server->last_threshold_2 + 1; i <= new_t2; i++) {
+        std::string index = server->IndexToKey(i);
+        std::string value;
+        
+        std::printf("T2 Update: Looking up key %s\n", index.c_str());
+
+        bool found = server->db_->Get(index, &value);
+        if (found) {
+          size_t old_size = value.size();
+          
+          // Modify 'value' in-place
+          TruncateRequestFragments(value, 1);
+          
+          bool success = server->db_->Put(index, value); 
+          
+          if (!success) {
+              std::cerr << "CRITICAL ERROR: Failed to write key " << index << " to DB!" << std::endl;
+          } else {
+              std::printf("Successfully stored %s (%zu bytes)\n", index.c_str(), value.size());
+          }
+        }
+      }
+      // Update local tracker
+      server->last_threshold_2 = new_t2;
+
+      // IMPORTANT: Reset the flag so this block doesn't run infinitely
+      // Assuming you have a setter for this
+      server->channel_->SetFlag(false); 
+    }
+    server->applied_index_ = ent.Index();
+
+    
     // Add the apply result into map
     std::scoped_lock<std::mutex> lck(server->map_mutex_);
     server->applied_cmds_.insert({ent.Index(), ar});
   }
 }
+
+
 
 void KvServer::ExecuteGetOperation(const Request *request, Response *resp) {
   auto read_index = this->raft_->LastIndex();

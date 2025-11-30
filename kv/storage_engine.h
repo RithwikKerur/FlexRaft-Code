@@ -33,5 +33,7 @@ class StorageEngine {
   // Delete the record with specific key, return true if the key is successfully
   // deleted, otherwise return false
   virtual bool Delete(const std::string &key) = 0;
+
+  virtual void GetAllKeys(std::vector<std::string> *keys) = 0;
 };
 }  // namespace kv
