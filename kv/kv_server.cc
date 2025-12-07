@@ -172,17 +172,6 @@ void TruncateRequestFragments(std::string &raw_data, int target_num_shards) {
   // If target_num_shards was smaller than existing, this chops off the extra bytes.
   // If target_num_shards was larger, this does nothing (keeps all existing data).
   raw_data.resize(current_offset);
-
-  // 4. Update the Header 'k' (First 4 bytes)
-  // We overwrite the first integer to match the actual number of shards we kept.
-  // Note: &raw_data[0] gives us a mutable pointer to the string's internal buffer.
-  char* mutable_header = &raw_data[0];
-  *reinterpret_cast<int *>(mutable_header) = shards_found;
-  
-  // Optional: Update 'm' (total servers - k) if your logic requires it
-  // int m = total_servers - shards_found;
-  // *reinterpret_cast<int *>(mutable_header + 4) = m;
-  
   std::printf("Updated Request in-place: New K=%d, Size=%zu\n", shards_found, raw_data.size());
 }
 

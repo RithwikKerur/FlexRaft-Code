@@ -31,7 +31,7 @@ class RocksDBEngine final : public StorageEngine {
     // NOTE: Should we use wo.sync=true or wo.sync=false, there is a huge
     // performance difference between these two choices
     auto wo = rocksdb::WriteOptions();
-    wo.sync = true;
+    wo.sync = false;
     auto stat = dbptr_->Put(wo, key, value);
     return stat.ok();
   }
