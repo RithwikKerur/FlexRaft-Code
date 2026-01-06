@@ -45,11 +45,20 @@ bool Encoder::EncodeSlice(const Slice &slice, int k, int m, EncodingResults *res
   // encoding input, for the rest m segments, their data is the encoding output
   for (int i = 0; i < k + m; ++i) {
     if (i < k) {
-      results->insert({i, Slice(reinterpret_cast<char *>(encode_input_[i]), fragment_size)});
+      // Create a copy of the data fragment to ensure it has independent memory
+      results->insert({i, Slice::Copy(Slice(reinterpret_cast<char *>(encode_input_[i]), fragment_size))});
     } else {
-      results->insert({i, Slice(reinterpret_cast<char *>(encode_output_[i - k]), fragment_size)});
+      // Create a copy of the parity fragment to ensure it has independent memory
+      results->insert({i, Slice::Copy(Slice(reinterpret_cast<char *>(encode_output_[i - k]), fragment_size))});
     }
   }
+
+  // Clean up temporary buffers
+  for (int i = 0; i < m; i++) {
+    delete[] encode_output_[i];
+  }
+  delete[] g_tbls;
+
   return true;
 }
 
@@ -132,12 +141,16 @@ bool Encoder::DecodeSliceHelper(const EncodingResults &fragments, int k, int m, 
       decode_output_[i] = (unsigned char *)(data + missing_rows_[i] * fragment_size);
     }
 
-    auto iter = fragments.begin();
-    for (int i = 0; i < k; ++i, ++iter) {
-      decode_input_[i] = reinterpret_cast<unsigned char *>(iter->second.data());
+    // Use valid_rows_ to ensure decode_input_ order matches the decode matrix
+    for (int i = 0; i < k; ++i) {
+      auto frag_id = valid_rows_[i];
+      decode_input_[i] = reinterpret_cast<unsigned char *>(fragments.at(frag_id).data());
     }
 
     ec_encode_data(fragment_size, k, missing_rows_.size(), g_tbls, decode_input_, decode_output_);
+
+    // Clean up temporary buffer
+    delete[] g_tbls;
   }
   return true;
 }
@@ -152,7 +165,8 @@ bool Encoder::DecodeSlice(const EncodingResults &fragments, int k, int m, Slice 
 
   auto fragment_size = fragments.begin()->second.size();
   auto complete_size = fragment_size * k;
-  auto data = new char[complete_size + 16];
+  auto data = new char[complete_size]();  // () initializes to zero
+
   int decode_size = 0;
   if (!DecodeSliceHelper(fragments, k, m, data, &decode_size)) {
     delete[] data;

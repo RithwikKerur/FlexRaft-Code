@@ -41,6 +41,6 @@ const std::string ToString(ErrorType type) {
 }
 
 const std::string ToString(const Request &req) {
-  return ToString(req.type) + " " + "(key = " + req.key + " value = " + req.value + ")";
+  return ToString(req.type) + " " + "(key = " + req.key + " value = " + req.value.c_str() + ")";
 }
 }  // namespace kv

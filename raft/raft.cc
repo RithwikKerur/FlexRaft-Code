@@ -440,6 +440,28 @@ ProposeResult RaftState::Propose(const CommandData &command) {
   LogEntry entry;
   entry.SetType(kNormal);
   entry.SetCommandData(command.command_data);
+
+  // DEBUG: Check for garbage bytes in CommandData before any encoding
+  // Skip the 16-byte value header (4 bytes length + 12 bytes metadata)
+  const char* cmd_data = command.command_data.data();
+  int cmd_size = command.command_data.size();
+  int cmd_check_start = command.start_fragment_offset + 16;
+  printf("DEBUG [Propose]: CommandData size=%d, start_offset=%d, checking from byte %d\n", cmd_size, command.start_fragment_offset, cmd_check_start);
+
+  // Check bytes after start_fragment_offset + 16 for non-zero values
+  bool found_garbage = false;
+  for (int i = cmd_check_start; i < cmd_size; i++) {
+    if (cmd_data[i] != 0) {
+      if (!found_garbage) {
+        printf("DEBUG [Propose]: FIRST non-zero byte at position %d: 0x%02X\n", i, (unsigned char)cmd_data[i]);
+        found_garbage = true;
+      }
+    }
+  }
+  if (!found_garbage) {
+    printf("DEBUG [Propose]: All bytes after start_offset+16 are zero (as expected)\n");
+  }
+
   entry.SetIndex(next_entry_index);
   entry.SetTerm(CurrentTerm());
   entry.SetStartOffset(command.start_fragment_offset);
@@ -965,12 +987,65 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
   stripe->raft_term = ent->Term();
   stripe->fragments.clear();
 
-  LOG(util::kRaft, "S%d Encode I%d T%d K%d M%d", id_, raft_index, stripe->raft_term, k, m);
+  LOG(util::kRaft, "S%d Encode I%d T%d K%d M%d size %d" , id_, raft_index, stripe->raft_term, k, m, ent->CommandData().size() - ent->StartOffset());
+
+  // DEBUG: Check for garbage bytes in CommandData BEFORE encoding
+  // Skip the 16-byte value header (4 bytes length + 12 bytes metadata)
+  const char* enc_data = ent->CommandData().data();
+  int enc_size = ent->CommandData().size();
+  int enc_start = ent->StartOffset();
+  int enc_check_start = enc_start + 16;
+  /*
+  printf("DEBUG [EncodeRaftEntry]: I%d CommandData size=%d, start_offset=%d, checking from byte %d\n", raft_index, enc_size, enc_start, enc_check_start);
+
+  
+  // Check bytes after start_offset + 16 for non-zero values
+  bool found_enc_garbage = false;
+  for (int i = enc_check_start; i < enc_size; i++) {
+    if (enc_data[i] != 0) {
+      if (!found_enc_garbage) {
+        printf("DEBUG [EncodeRaftEntry]: I%d FIRST non-zero byte at position %d: 0x%02X\n",
+               raft_index, i, (unsigned char)enc_data[i]);
+        found_enc_garbage = true;
+      }
+    }
+  }
+  if (!found_enc_garbage) {
+    printf("DEBUG [EncodeRaftEntry]: I%d All bytes after start_offset+16 are zero (as expected)\n", raft_index);
+  }*/
   Encoder::EncodingResults results;
   auto data_to_encode = ent->CommandData().data() + ent->StartOffset();
   auto datasize_to_encode = ent->CommandData().size() - ent->StartOffset();
-  Slice encode_slice = Slice(data_to_encode, datasize_to_encode);
+
+  // Calculate required padding to make size divisible by k
+  auto fragment_size = (datasize_to_encode + k - 1) / k;
+  auto padded_size = fragment_size * k;
+
+  // Create padded buffer if needed
+  char* padded_data = nullptr;
+  Slice encode_slice;
+  if (padded_size > datasize_to_encode) {
+    // Need padding - create zero-initialized buffer
+    padded_data = new char[padded_size]();  // () initializes to zero
+    std::memcpy(padded_data, data_to_encode, datasize_to_encode);
+    encode_slice = Slice(padded_data, padded_size);
+    printf("DEBUG [EncodeRaftEntry]: Padded from %zu to %zu bytes\n", datasize_to_encode, padded_size);
+  } else {
+    // No padding needed
+    encode_slice = Slice(data_to_encode, datasize_to_encode);
+  }
+
+  printf("About to encode: size=%zu, first 16 bytes: ", encode_slice.size());
+  for (int i = 0; i < 16 && i < encode_slice.size(); i++) {
+      printf("%02X ", (unsigned char)encode_slice.data()[i]);
+  }
+  printf("\n");
   encoder_.EncodeSlice(encode_slice, k, m, &results);
+
+  // Clean up padded buffer if we allocated one
+  if (padded_data != nullptr) {
+    delete[] padded_data;
+  }
   
   for (int i = 0; i < GetClusterServerNumber(); i++){
     LogEntry encoded_ent;
@@ -989,6 +1064,54 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
     }
     encoded_ent.SetFragmentSlice(slices);
     stripe->fragments[i] = encoded_ent;
+  }
+
+  // DEBUG: Verify encoding by decoding back and comparing with original
+  printf("DEBUG [EncodeRaftEntry]: Verifying encoding by decoding fragments back...\n");
+
+  // Test decoding with slices 0, 3, and 6 (non-consecutive fragments)
+  Encoder::EncodingResults decode_input;
+  int test_indices[] = {0, 3, 6};
+  printf("DEBUG [EncodeRaftEntry]: Using fragments at indices: ");
+  for (int i = 0; i < k && i < 3; i++) {
+    int idx = test_indices[i];
+    if (idx < results.size()) {
+      decode_input[idx] = results.at(idx);
+      printf("%d ", idx);
+    }
+  }
+  printf("\n");
+
+  // Decode the fragments
+  Slice decoded_result;
+  bool decode_success = encoder_.DecodeSlice(decode_input, k, m, &decoded_result);
+
+  if (decode_success) {
+    printf("DEBUG [EncodeRaftEntry]: Decode successful, comparing with original...\n");
+
+    // Compare decoded result with original data (skipping the 16-byte header)
+    const char* original_data = data_to_encode;
+    const char* decoded_data = decoded_result.data();
+    int compare_start = 16;
+
+    bool mismatch_found = false;
+    for (int i = compare_start; i < datasize_to_encode && i < decoded_result.size(); i++) {
+      if (decoded_data[i] != original_data[i]) {
+        if (!mismatch_found) {
+          printf("DEBUG [EncodeRaftEntry]: MISMATCH at byte %d: decoded=0x%02X, original=0x%02X\n",
+                 i, (unsigned char)decoded_data[i], (unsigned char)original_data[i]);
+          mismatch_found = true;
+        }
+      }
+    }
+
+    if (!mismatch_found) {
+      printf("DEBUG [EncodeRaftEntry]: Encode/Decode verification PASSED - data matches!\n");
+    } else {
+      printf("DEBUG [EncodeRaftEntry]: Encode/Decode verification FAILED - data mismatch!\n");
+    }
+  } else {
+    printf("DEBUG [EncodeRaftEntry]: Decode FAILED - cannot verify encoding\n");
   }
 }
 
@@ -1053,6 +1176,26 @@ bool RaftState::DecodingRaftEntry(Stripe *stripe, LogEntry *ent) {
   ent->SetStartOffset(not_encoded_size);
   ent->SetChunkInfo(ChunkInfo{0, ent->Index()});
   LOG(util::kRaft, "S%d Decode Results: Ent(%s)", id_, ent->ToString().c_str());
+
+  // DEBUG: Check for garbage bytes in decoded CommandData
+  // Skip the 16-byte value header (4 bytes length + 12 bytes metadata)
+  int dec_check_start = not_encoded_size + 16;
+  printf("DEBUG [DecodingRaftEntry]: I%d Decoded CommandData size=%d, start_offset=%d, checking from byte %d\n",
+         stripe->raft_index, origin_size, not_encoded_size, dec_check_start);
+
+  bool found_decoded_garbage = false;
+  for (int i = dec_check_start; i < origin_size; i++) {
+    if (data[i] != 0) {
+      if (!found_decoded_garbage) {
+        printf("DEBUG [DecodingRaftEntry]: I%d FIRST non-zero byte at position %d: 0x%02X\n",
+               stripe->raft_index, i, (unsigned char)data[i]);
+        found_decoded_garbage = true;
+      }
+    }
+  }
+  if (!found_decoded_garbage) {
+    printf("DEBUG [DecodingRaftEntry]: I%d All bytes after start_offset+16 are zero (as expected)\n", stripe->raft_index);
+  }
 
   return true;
 }

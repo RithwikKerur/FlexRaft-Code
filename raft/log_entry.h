@@ -16,7 +16,7 @@ class Serializer;
 class Slice {
  public:
   static Slice Copy(const Slice &slice) {
-    auto data = new char[slice.size() + 12];
+    auto data = new char[slice.size()];
     std::memcpy(data, slice.data(), slice.size());
     return Slice(data, slice.size());
   }

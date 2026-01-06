@@ -74,7 +74,9 @@ AnalysisResults Analysis(const std::vector<OperationStat> &collected_data) {
 }
 
 void BuildBench(const BenchConfiguration &cfg, std::vector<KvPair> *bench) {
+  
   const std::string value_suffix(cfg.bench_put_size, 0);
+  printf("Value size: %d \n", cfg.bench_put_size);
   for (int i = 1; i <= cfg.bench_put_cnt; ++i) {
     auto key = cfg.key_prefix + std::to_string(i);
     auto val = cfg.value_prefix + std::to_string(i) + value_suffix;
@@ -123,6 +125,50 @@ void ExecuteBench(kv::KvServiceClient *client, const std::vector<KvPair> &bench)
   for (const auto &p : bench) {
     std::string get_val;
     auto stat = client->Get(p.first, &get_val);
+    printf("DEBUG: bench Val %s\n", get_val.c_str());
+    printf("DEBUG: get_val.size() = %zu\n", get_val.size());
+    printf("DEBUG: get_val.length() = %zu\n", get_val.length());
+    printf("DEBUG: strlen(get_val.c_str()) = %zu\n", strlen(get_val.c_str()));
+    printf("DEBUG: Hex dump: ");
+    for (size_t i = 0; i < get_val.size(); i++) {
+      printf("%02X ", (unsigned char)get_val[i]);
+    }
+    printf("\n");
+
+    printf("DEBUG: bench Val %s\n", p.second.c_str());
+    printf("DEBUG: get_val.size() = %zu\n", p.second.size());
+    printf("DEBUG: get_val.length() = %zu\n", p.second.length());
+    printf("DEBUG: strlen(get_val.c_str()) = %zu\n", strlen(p.second.c_str()));
+    printf("DEBUG: Hex dump: ");
+    for (size_t i = 0; i < p.second.size(); i++) {
+      printf("%02X ", (unsigned char)p.second[i]);
+    }
+    printf("\n");
+
+    printf("DEBUG: Comparing byte by byte:\n");
+    bool mismatch_found = false;
+    for (size_t i = 0; i < std::min(get_val.size(), p.second.size()); i++) {
+      if (get_val[i] != p.second[i]) {
+          printf("MISMATCH at byte %zu: get_val[%zu]=%02X, p.second[%zu]=%02X\n",
+                  i, i, (unsigned char)get_val[i], i, (unsigned char)p.second[i]);
+          mismatch_found = true;
+          if (i > 20) break; // Only show first few mismatches
+      }
+    }
+    if (!mismatch_found && get_val.size() == p.second.size()) {
+      printf("All bytes match!\n");
+    } else if (!mismatch_found) {
+      printf("Size mismatch: get_val.size()=%zu, p.second.size()=%zu\n", 
+              get_val.size(), p.second.size());
+    }
+    if (stat.err != kv::kOk) {
+    printf( "Debug: Check Failed - stat.err is NOT kOk. (Actual: %d)", stat.err);
+    } else if (get_val != p.second) {
+        printf("Debug: Check Failed - Value Mismatch.\nExpected: %s\nActual:   %s\n", 
+            p.second.c_str(), get_val.c_str());
+    } else {
+        printf("Debug: Check Passed!");
+    }
     if (stat.err == kv::kOk && get_val == p.second) {
       ++succ_cnt;
     }

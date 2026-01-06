@@ -101,6 +101,24 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
       raft::util::Timer commit_timer;
       commit_timer.Reset();
       LOG(raft::util::kRaft, "Command Data size: %d", size);
+
+      // DEBUG: Check for garbage bytes in the data buffer BEFORE sending to Raft
+      // Skip the 16-byte value header (4 bytes length + 12 bytes metadata)
+      int check_start = start_offset + 16;
+      printf("DEBUG [KvServer]: Created data buffer size=%zu, start_offset=%d, checking from byte %d\n", size, start_offset, check_start);
+      bool found_kv_garbage = false;
+      for (int i = check_start; i < static_cast<int>(size); i++) {
+        if (data[i] != 0) {
+          if (!found_kv_garbage) {
+            printf("DEBUG [KvServer]: FIRST non-zero byte at position %d: 0x%02X\n", i, (unsigned char)data[i]);
+            found_kv_garbage = true;
+          }
+        }
+      }
+      if (!found_kv_garbage) {
+        printf("DEBUG [KvServer]: All bytes after start_offset+16 are zero (as expected)\n");
+      }
+
       auto cmd = raft::CommandData{start_offset, raft::Slice(data, size)};
       
       auto pr = raft_->Propose(cmd);
@@ -217,12 +235,54 @@ void KvServer::ApplyRequestCommandThread(KvServer *server) {
     elapse_timer.Reset();
 
     // Apply this entry to state machine(i.e. Storage Engine)
+
+    // DEBUG: Check LogEntry's CommandData BEFORE RaftEntryToRequest
+    const char* apply_cmd_data = ent.CommandData().data();
+    int apply_cmd_size = ent.CommandData().size();
+    int apply_start = ent.StartOffset();
+    int apply_check_start = apply_start + 16;
+    printf("DEBUG [ApplyLogEntry]: BEFORE RaftEntryToRequest - CommandData size=%d, start_offset=%d, checking from byte %d\n",
+           apply_cmd_size, apply_start, apply_check_start);
+
+    bool found_before_garbage = false;
+    for (int i = apply_check_start; i < apply_cmd_size; i++) {
+      if (apply_cmd_data[i] != 0) {
+        if (!found_before_garbage) {
+          printf("DEBUG [ApplyLogEntry]: BEFORE conversion - FIRST non-zero byte at position %d: 0x%02X\n",
+                 i, (unsigned char)apply_cmd_data[i]);
+          found_before_garbage = true;
+        }
+      }
+    }
+    if (!found_before_garbage) {
+      printf("DEBUG [ApplyLogEntry]: BEFORE conversion - All bytes after start_offset+16 are zero (as expected)\n");
+    }
+
     Request req;
     // RawBytesToRequest(ent.CommandData().data(), &req);
     RaftEntryToRequest(ent, &req, server->Id(), server->ClusterServerNum());
 
-    std::printf("S%d Apply request(key = %s value = %s) to db\n", server->Id(), req.key.c_str(), req.value.c_str());
+    // DEBUG: Check for garbage bytes in req.value after RaftEntryToRequest
+    printf("DEBUG [ApplyLogEntry]: After RaftEntryToRequest, req.value size=%zu\n", req.value.size());
+    if (req.value.size() > 16) {
+      bool found_apply_garbage = false;
+      for (size_t i = 17; i < req.value.size(); i++) {
+        if (req.value[i] != 0) {
+          if (!found_apply_garbage) {
+            printf("DEBUG [ApplyLogEntry]: FIRST non-zero byte at position %zu: 0x%02X\n", i, (unsigned char)req.value[i]);
+            found_apply_garbage = true;
+          }
+        }
+      }
+      if (!found_apply_garbage) {
+        printf("DEBUG [ApplyLogEntry]: All bytes after position 16 are zero (as expected)\n");
+      }
+    }
 
+std::printf("S%d Apply request(key = %s value = %s) to db\n",
+            server->Id(),
+            req.key.c_str(),
+            req.value.size() > 16 ? req.value.c_str() + 16 : "Empty/HeaderOnly");
     std::printf("Server Threshold1 %d Threshold2 %d Flag %d \n", server->channel_->GetThreshold1(), server->channel_->GetThreshold2(), server->channel_->GetFlag());
 
     std::string get_value;
@@ -362,43 +422,109 @@ void KvServer::ExecuteGetOperation(const Request *request, Response *resp) {
 
   // Otherwise, a value gathering task should be established and executed to get
   // the full entry value.
-  int k = format.k, m = format.m;
-  raft::Encoder::EncodingResults input;
-  input.insert({format.frag_id, raft::Slice::Copy(format.frag)});
-  LOG(raft::util::kRaft, "[S%d] Add Fragment of Frag%d", Id(), format.frag_id);
+  const std::string& raw_val = resp->value;
 
+  // Basic validation
+  if (raw_val.size() < 12) {
+      LOG(raft::util::kRaft, "[S%d] Error: Local value too short", Id());
+      return; 
+  }
+
+  const char* ptr = raw_val.data();
+
+  // 2. Read 'k' and 'm' manually (Bytes 0-8)
+  int k = *reinterpret_cast<const int*>(ptr);
+  int m = *reinterpret_cast<const int*>(ptr + 4);
+  // We ignore bytes 8-11 (the stored frag_id) because we recalculate it below
+
+  // 3. Prepare the Input Map
+  raft::Encoder::EncodingResults input;
+
+  // 4. Parsing Loop (Identical to DoValueGatheringTask)
+  size_t current_offset = 12; // Skip the 12-byte header
+  int internal_index = 0;     // Start fragment counter at 0
+
+  while (current_offset < raw_val.size()) {
+      // Safety: Check if we can read the length integer
+      if (current_offset + sizeof(int) > raw_val.size()) break;
+
+      // Read the length of this specific shard
+      int slice_len = *reinterpret_cast<const int*>(ptr + current_offset);
+      current_offset += sizeof(int);
+
+      // Safety: Check if we can read the payload
+      if (current_offset + slice_len > raw_val.size()) break;
+
+      // 5. CALCULATE FRAGMENT ID
+      // This ensures the ID matches the global matrix row, not just the local index.
+      // Formula: (ServerID * k) + internal_index
+      auto frag_id = static_cast<raft::raft_frag_id_t>((Id() * k) + internal_index);
+
+      // 6. Deep Copy & Insert
+      // We CREATE a std::string to force a new memory allocation. 
+      // This is critical because DoValueGatheringTask will try to 'delete[]' this pointer later.
+      std::string chunk_data(ptr + current_offset, slice_len);
+      input.insert({frag_id, raft::Slice(chunk_data)});
+
+      LOG(raft::util::kRaft, "[S%d] Loaded Local Shard: GlobalID=%d (Internal=%d), Size=%d", 
+          Id(), frag_id, internal_index, slice_len);
+
+      current_offset += slice_len;
+      internal_index++;
+  }
+
+  // 7. Create and Execute the Task
+  // We pass 'input', which now contains safely allocated, correctly ID'd shards
   ValueGatheringTask task{request->key, resp->read_index, resp->reply_server_id, &input, k, m};
   ValueGatheringTaskResults res{&(resp->value), kOk};
 
   DoValueGatheringTask(&task, &res);
 
-  // Add this new decoded entry into database
-  char tmp_data[12];
-  *reinterpret_cast<int *>(tmp_data) = 1;
-  *reinterpret_cast<int *>(tmp_data + 4) = 0;
-  *reinterpret_cast<int *>(tmp_data + 8) = 0;
+  std::string insert_full_entry;
+  insert_full_entry.reserve(12 + sizeof(int) + res.value->size());
 
-  std::string insert_full_entry = "";
-  for (int i = 0; i < 12; ++i) {
-    insert_full_entry.push_back(tmp_data[i]);
+  // 2. Append the 12-byte Header (safely, without reinterpret_cast issues)
+  int header_ints[3] = {1, 0, 0};
+  insert_full_entry.append(reinterpret_cast<const char*>(header_ints), sizeof(header_ints));
+
+  // 3. Append the Prefix Length (The size of the value)
+  // (Assuming you want the length of the string as the prefix)
+  int val_size = static_cast<int>(res.value->size());
+  insert_full_entry.append(reinterpret_cast<const char*>(&val_size), sizeof(val_size));
+
+  // 4. Append the Actual Value
+  insert_full_entry.append(*res.value);
+
+  LOG(raft::util::kRaft, "Reconstructed Value %s \n", insert_full_entry.c_str()+16);
+  LOG(raft::util::kRaft, "Server String Size: %lu\n", insert_full_entry.size());
+
+  // DEBUG: Check final insert_full_entry for garbage bytes after position 16
+  printf("DEBUG [ExecuteGetOperation]: Final insert_full_entry size=%zu\n", insert_full_entry.size());
+  if (insert_full_entry.size() > 16) {
+    bool found_final_garbage = false;
+    for (size_t i = 17; i < insert_full_entry.size(); i++) {
+      if (insert_full_entry[i] != 0) {
+        if (!found_final_garbage) {
+          printf("DEBUG [ExecuteGetOperation]: FIRST non-zero byte at position %zu: 0x%02X\n",
+                 i, (unsigned char)insert_full_entry[i]);
+          found_final_garbage = true;
+        }
+      }
+    }
+    if (!found_final_garbage) {
+      printf("DEBUG [ExecuteGetOperation]: All bytes after position 16 are zero (as expected)\n");
+    }
   }
 
-  auto prefix_key_size = res.value->size() + sizeof(int);
-  char *tmp = new char[prefix_key_size];
-
-  MakePrefixLengthKey(*res.value, tmp);
-  insert_full_entry.append(tmp, prefix_key_size);
-
+  // 5. Use it
   resp->value = insert_full_entry;
   resp->err = kOk;
-
-  // Add this entry into database
   db_->Put(request->key, insert_full_entry);
 
-  delete[] tmp;
   return;
 }
 
+/*
 void KvServer::DoValueGatheringTask(ValueGatheringTask *task, ValueGatheringTaskResults *res) {
   LOG(raft::util::kRaft, "[S%d] Start running ValueGatheringTask, k=%d, m=%d", Id(), task->k,
       task->m);
@@ -485,6 +611,194 @@ void KvServer::DoValueGatheringTask(ValueGatheringTask *task, ValueGatheringTask
     }
   }
   //  Set the error code
+  if (res->err == kOk) {
+    res->err = kRequestExecTimeout;
+  }
+  clear_gather_ctx();
+}*/
+
+void KvServer::DoValueGatheringTask(ValueGatheringTask *task, ValueGatheringTaskResults *res) {
+
+  LOG(raft::util::kRaft, "[S%d] Start running ValueGatheringTask, k=%d, m=%d", Id(), task->k,
+      task->m);
+  std::atomic<bool> gather_value_done = false;
+
+  // Use lock to prevent concurrent callback function running
+  std::mutex mtx;
+
+  // Store responses to keep them alive during processing
+  std::vector<GetValueResponse> responses;
+
+  // --------------------------------------------------------------------------
+  // Callback: Handles responses containing potentially MULTIPLE shards
+  // --------------------------------------------------------------------------
+  auto call_back = [=, &gather_value_done, &mtx](const GetValueResponse &resp) {
+    LOG(raft::util::kRaft, "[S%d] Recv GetValue Response from S%d", Id(), resp.reply_server_id);
+    if (resp.err != kOk) {
+      return;
+    }
+
+    std::scoped_lock<std::mutex> lck(mtx);
+
+    // 1. Fast Exit if already finished
+    if (gather_value_done.load()) {
+      return;
+    }
+
+    // 2. Parse the Raw Response
+    const std::string& raw_val = resp.value;
+    
+    // Basic header validation (4 bytes k + 4 bytes m + 4 bytes padding/other = 12)
+    if (raw_val.size() < 12) {
+         LOG(raft::util::kRaft, "[S%d] Error: Response too short from S%d", Id(), resp.reply_server_id);
+         return;
+    }
+
+    const char* ptr = raw_val.data();
+    size_t current_offset = 12; // Skip the 12-byte header
+    int internal_index = 0;     // Start fragment counting at 0
+
+    // Loop through the buffer to extract ALL shards stored in this response
+    while (current_offset < raw_val.size()) {
+        if (current_offset + sizeof(int) > raw_val.size()) break;
+        
+        // Read slice length
+        int slice_len = *reinterpret_cast<const int*>(ptr + current_offset);
+        current_offset += sizeof(int);
+        
+        if (current_offset + slice_len > raw_val.size()) break;
+
+        // Construct Fragment ID: internal index + server ID offset
+        auto frag_id = static_cast<raft::raft_frag_id_t>(internal_index + (resp.reply_server_id*task->k));
+        LOG(raft::util::kRaft, 
+            "[S%d] Parsing S%d: internal_idx=%d, k=%d -> Assigned FragID=%d", 
+            Id(), resp.reply_server_id, internal_index, task->k, frag_id);
+
+        // Store if new
+        if (task->decode_input->find(frag_id) == task->decode_input->end()) {
+            // Allocate persistent memory for this fragment
+            char* persistent_data = new char[slice_len];
+            std::memcpy(persistent_data, ptr + current_offset, slice_len);
+
+            // Create Slice from the persistent buffer
+            task->decode_input->insert({frag_id, raft::Slice(persistent_data, slice_len)});        
+            LOG(raft::util::kRaft, "[S%d] Add Fragment%d in ValueGatheringTask with size %d", Id(), frag_id, slice_len);
+        }
+
+        current_offset += slice_len;
+        internal_index++;
+    }
+
+    // 3. Check for Reconstruction
+    // We use task->k because the encoding scheme is fixed/known
+    if (!gather_value_done.load() && static_cast<int>(task->decode_input->size()) >= task->k) {
+        raft::Encoder encoder;
+        raft::Slice results;
+        
+        // Attempt decode with the fixed k/m parameters
+        auto stat = encoder.DecodeSlice(*(task->decode_input), task->k, 15, &results);
+        
+        if (stat) {
+          // DEBUG: Show raw decoded buffer
+          printf("DEBUG [DoValueGatheringTask]: Decode SUCCESS, results.size()=%zu\n", results.size());
+
+          // 1. Point to the raw decoded buffer
+          const char* ptr = results.data();
+
+          // 2. Read the embedded length (The "True" Length)
+          // Your format is: [4-byte Length] [Actual String Data]
+          int true_data_len = *reinterpret_cast<const int*>(ptr);
+          // 3. Safety Check: Ensure the length is sane
+          // It must be positive and fit within the decoded buffer (minus the 4-byte header)
+          if (true_data_len > 0 && static_cast<size_t>(true_data_len) <= results.size() - sizeof(int)) {
+
+              // 4. Extract ONLY the valid bytes (skipping the 4-byte header)
+              res->value->assign(ptr + sizeof(int), true_data_len);
+
+              res->err = kOk;
+              gather_value_done.store(true);
+
+              // DEBUG: Check decoded value for garbage bytes after position 16
+              printf("DEBUG [DoValueGatheringTask]: After decode, value size=%zu\n", res->value->size());
+              if (res->value->size() > 16) {
+                bool found_decode_garbage = false;
+                for (size_t i = 16; i < res->value->size(); i++) {
+                  if ((*res->value)[i] != 0) {
+                    if (!found_decode_garbage) {
+                      printf("DEBUG [DoValueGatheringTask]: FIRST non-zero byte at position %zu: 0x%02X\n",
+                             i, (unsigned char)(*res->value)[i]);
+                      found_decode_garbage = true;
+                    }
+                  }
+                }
+                if (!found_decode_garbage) {
+                  printf("DEBUG [DoValueGatheringTask]: All bytes after position 16 are zero (as expected)\n");
+                }
+              }
+
+              // (Optional) Debug Log showing clean vs raw
+              LOG(raft::util::kRaft, "Successfully Decoded");
+
+          } else {
+              // Handle corruption (Header says length is 5000 but buffer is only 10 bytes)
+              res->err = kKVDecodeFail; 
+              LOG(raft::util::kRaft, "[S%d] Decode Success but Header Invalid (Len: %d, Buff: %d)", 
+                  Id(), true_data_len, results.size());
+          }
+        }
+    }
+  };
+
+  // Helper to clean up memory
+  auto clear_gather_ctx = [=]() {
+    for (auto &[_, frag] : *(task->decode_input)) {
+      delete[] frag.data();
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // Scatter: Send Requests to All Peers
+  // --------------------------------------------------------------------------
+  auto get_req = GetValueRequest{task->key, task->read_index};
+  for (auto &[id, server] : kv_peers_) {
+    // Skip the node that triggered this task (if applicable)
+    if (id == task->replied_id) {
+      continue;
+    }
+    
+    auto stub = reinterpret_cast<rpc::KvServerRPCClient *>(server);
+    stub->SetRPCTimeOutMs(1000);
+    
+    // Synchronous call
+    auto resp = stub->GetValue(get_req);
+    if (resp.err == kOk) {
+      // Store the response to keep it alive
+      responses.push_back(resp);
+      // Pass the stored response (which won't go out of scope)
+      call_back(responses.back());
+    }
+    
+    // Optimization: Stop asking peers if we successfully decoded the value
+    if (gather_value_done.load()) {
+      break;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Timeout / Wait Logic
+  // --------------------------------------------------------------------------
+  raft::util::Timer timer;
+  timer.Reset();
+  while (timer.ElapseMilliseconds() <= 1000) {
+    if (gather_value_done.load() == true) {
+      clear_gather_ctx();
+      return;
+    } else {
+      // sleepMs(100);
+    }
+  }
+  
+  // Set the error code if we timed out
   if (res->err == kOk) {
     res->err = kRequestExecTimeout;
   }

@@ -213,25 +213,25 @@ void Serializer::Deserialize(const RCF::ByteBuffer *buffer, RequestFragmentsRepl
 }
 
 char *Serializer::PutPrefixLengthSlice(const Slice &slice, char *buf) {
-  *reinterpret_cast<size_t *>(buf) = slice.size();
+  *reinterpret_cast<int *>(buf) = slice.size();
   printf("Serializing size %d\n", slice.size());
-  buf += sizeof(size_t);
+  buf += sizeof(int);
   std::memcpy(buf, slice.data(), slice.size());
   return buf + slice.size();
 }
 
 char *Serializer::PutPrefixLengthSlices(const std::vector<Slice> &slices, char *buf) {
   // First, serialize the number of slices in the vector
-  *reinterpret_cast<size_t *>(buf) = slices.size();
+  *reinterpret_cast<int *>(buf) = slices.size();
   printf("Serializing %zu slices\n", slices.size());
-  buf += sizeof(size_t);
+  buf += sizeof(int);
   
   // Then serialize each slice with its own length prefix
   for (const auto &slice : slices) {
     // Write the size of this slice
-    *reinterpret_cast<size_t *>(buf) = slice.size();
+    *reinterpret_cast<int *>(buf) = slice.size();
     printf("Serializing slice size %zu\n", slice.size());
-    buf += sizeof(size_t);
+    buf += sizeof(int);
     
     // Write the slice data
     std::memcpy(buf, slice.data(), slice.size());
@@ -243,11 +243,11 @@ char *Serializer::PutPrefixLengthSlices(const std::vector<Slice> &slices, char *
 
 
 const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
-  size_t size = *reinterpret_cast<const size_t *>(buf);
+  int size = *reinterpret_cast<const int *>(buf);
   printf("DeSerializing size %d\n", size);
 
   char *data = new char[size];
-  buf += sizeof(size_t);
+  buf += sizeof(int);
   std::memcpy(data, buf, size);
   *slice = Slice(data, size);
   return buf + size;
@@ -255,19 +255,19 @@ const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
 
 const char *Serializer::ParsePrefixLengthSlices(const char *buf, std::vector<Slice> *slices) {
   // Read the number of slices
-  size_t num_slices = *reinterpret_cast<const size_t *>(buf);
+  int num_slices = *reinterpret_cast<const int *>(buf);
   printf("Deserializing %zu slices\n", num_slices);
-  buf += sizeof(size_t);
+  buf += sizeof(int);
   
   slices->clear();
   slices->reserve(num_slices);
   
   // Read each slice
-  for (size_t i = 0; i < num_slices; ++i) {
+  for (int i = 0; i < num_slices; ++i) {
     // Read slice size
-    size_t slice_size = *reinterpret_cast<const size_t *>(buf);
+    int slice_size = *reinterpret_cast<const int *>(buf);
     printf("Deserializing slice size %zu\n", slice_size);
-    buf += sizeof(size_t);
+    buf += sizeof(int);
     
     // Create slice from data
     char *data = new char[slice_size];
@@ -280,15 +280,15 @@ const char *Serializer::ParsePrefixLengthSlices(const char *buf, std::vector<Sli
 }
 
 const char *Serializer::ParsePrefixLengthSliceWithBound(const char *buf, size_t len, Slice *slice) {
-  if (len < sizeof(size_t)) {
+  if (len < sizeof(int)) {
     return nullptr;
   }
-  size_t size = *reinterpret_cast<const size_t *>(buf);
-  if (size + sizeof(size_t) > len) {  // Beyond range
+  int size = *reinterpret_cast<const int *>(buf);
+  if (size + sizeof(int) > len) {  // Beyond range
     return nullptr;
   }
   char *data = new char[size];
-  buf += sizeof(size_t);
+  buf += sizeof(int);
   std::memcpy(data, buf, size);
   *slice = Slice(data, size);
   return buf + size;
@@ -307,18 +307,17 @@ size_t Serializer::getSerializeSize(const LogEntry &entry) {
   ret += sizeof(int);                   // command_size_
   
   // Slice data with length prefixes
-  ret += sizeof(size_t) + entry.NotEncodedSlice().size();  // not_encoded slice
+  ret += sizeof(int) + entry.NotEncodedSlice().size();  // not_encoded slice
   
   // Fragment slices with length prefixes
-  ret += sizeof(size_t);  // number of fragment slices
+  ret += sizeof(int);  // number of fragment slices
   for (const auto &slice : entry.FragmentSlice()) {
-    ret += sizeof(size_t) + slice.size();  // each slice with its size prefix
+    ret += sizeof(int) + slice.size();  // each slice with its size prefix
   }
   
   printf("LogEntry Fragments size %zu\n", entry.GetFragmentsSize());
-  
-  // Make size 4B alignment
-  return (ret - 1) / 4 * 4 + 4;
+
+  return ret;
 }
 
 size_t Serializer::getSerializeSize(const RequestVoteArgs &args) { return sizeof(args); }
@@ -330,8 +329,7 @@ size_t Serializer::getSerializeSize(const AppendEntriesArgs &args) {
   for (const auto &ent : args.entries) {
     ret += getSerializeSize(ent);
   }
-  // Make the size 4B alignment
-  return (ret - 1) / 4 * 4 + 4;
+  return ret;
 }
 
 size_t Serializer::getSerializeSize(const AppendEntriesReply &reply) {

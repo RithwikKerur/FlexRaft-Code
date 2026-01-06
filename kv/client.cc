@@ -86,12 +86,17 @@ OperationResults KvServiceClient::Get(const std::string &key, std::string *value
     return OperationResults{resp.err, resp.apply_elapse_time};
   }
 
+    LOG(raft::util::kRaft, "Client Value %s\n", resp.value.c_str()+16);
+
+
   // Decoding the response byte array for further information: we may need to
   // collect other fragments
   auto format = DecodeString(&resp.value);
 
+
   if (format.k == 1) {
     GetKeyFromPrefixLengthFormat(format.frag.data(), value);
+    LOG(raft::util::kRaft, "Client Value %s\n", (*value).c_str());
     return OperationResults{kOk, 0};
   }
 
@@ -135,6 +140,7 @@ raft::raft_node_id_t KvServiceClient::DetectCurrentLeader() {
   return curr_leader_;
 }
 
+/*
 void KvServiceClient::DoGatherValueTask(const GatherValueTask *task, GatherValueTaskResults *res) {
   LOG(raft::util::kRaft, "[C%d] Start running Gather Value Task, k=%d, m=%d", ClientId(), task->k,
       task->m);
@@ -223,6 +229,150 @@ void KvServiceClient::DoGatherValueTask(const GatherValueTask *task, GatherValue
   if (res->err == kOk) {
     res->err = kRequestExecTimeout;
   }
+  clear_gather_ctx();
+}*/
+
+void KvServiceClient::DoGatherValueTask(const GatherValueTask *task, GatherValueTaskResults *res) {
+  LOG(raft::util::kRaft, "[C%d] Start Gather Value (Fixed Encoding): k=%d, m=%d", ClientId(), task->k, task->m);
+
+  std::atomic<bool> gather_value_done = false;
+  std::mutex mtx;
+
+  // --------------------------------------------------------------------------
+  // Callback: Handles responses containing potentially MULTIPLE shards
+  // --------------------------------------------------------------------------
+  auto call_back = [=, &gather_value_done, &mtx](const GetValueResponse &resp) {
+    if (resp.err != kOk) {
+      return;
+    }
+
+    std::scoped_lock<std::mutex> lck(mtx);
+
+    // 1. Fast Exit if already finished
+    if (gather_value_done.load()) {
+        return;
+    }
+
+    // 2. Parse the Raw Response (Logic from CollectShardsFromValue)
+    const std::string& raw_val = resp.value;
+    
+    // Basic header validation (4 bytes k + 4 bytes m + 4 bytes padding/other = 12)
+    if (raw_val.size() < 12) {
+        LOG(raft::util::kRaft, "[C%d] Error: Response too short from S%d", ClientId(), resp.reply_server_id);
+        return;
+    }
+
+    const char* ptr = raw_val.data();
+    size_t current_offset = 12; // Skip the 12-byte header
+
+    // Internal index within this server's shards (starts at 0)
+    int internal_index = 0;
+
+    // Loop through the buffer to extract ALL shards stored in this response
+    while (current_offset < raw_val.size()) {
+        if (current_offset + sizeof(int) > raw_val.size()) break;
+
+        // Read slice length
+        int slice_len = *reinterpret_cast<const int*>(ptr + current_offset);
+        current_offset += sizeof(int);
+
+        if (current_offset + slice_len > raw_val.size()) break;
+
+        // Construct Fragment ID
+        // Fragment ID = server_id * k + internal_index
+        // This matches the encoding: server i gets fragments [i*k, i*k+1, ..., i*k+(k-1)]
+        auto frag_id = static_cast<raft::raft_frag_id_t>(resp.reply_server_id * task->k + internal_index);
+
+        // Store if new
+        if (task->decode_input->find(frag_id) == task->decode_input->end()) {
+            // Create a safe copy of the data
+            std::string chunk_data(ptr + current_offset, slice_len);
+
+            // Insert into the map (Assuming Slice manages its own memory or copies)
+            task->decode_input->insert({frag_id, raft::Slice(chunk_data)});
+
+            LOG(raft::util::kRaft, "[C%d] Collected Frag %d (server %d, shard %d) from S%d",
+                ClientId(), frag_id, resp.reply_server_id, internal_index, resp.reply_server_id);
+        }
+
+        current_offset += slice_len;
+        internal_index++;
+    }
+
+    // 3. Check for Reconstruction
+    // We use task->k because the encoding scheme is fixed/known
+    if (!gather_value_done.load() && static_cast<int>(task->decode_input->size()) >= task->k) {
+      raft::Encoder encoder;
+      raft::Slice results;
+      
+      // Attempt decode with the fixed k/m parameters
+      auto stat = encoder.DecodeSlice(*(task->decode_input), task->k, task->m, &results);
+      
+      if (stat) {
+        // Success
+        GetKeyFromPrefixLengthFormat(results.data(), res->value);
+        res->err = kOk;
+        gather_value_done.store(true);
+        LOG(raft::util::kRaft, "[C%d] Decode Success! Reconstructed Value Size: %d", ClientId(), results.size());
+      } else {
+        // We have enough shards but decode failed (mismatched parity/corruption)
+        res->err = kKVDecodeFail;
+        LOG(raft::util::kRaft, "[C%d] Decode Failed despite having %d shards", ClientId(), task->decode_input->size());
+      }
+    }
+  };
+
+  // Helper to clean up memory
+  auto clear_gather_ctx = [=]() {
+    for (auto &[_, frag] : *(task->decode_input)) {
+        // Depending on your Slice implementation, you might need to free the buffer
+        // delete[] frag.data(); 
+    }
+  };
+
+  // --------------------------------------------------------------------------
+  // Scatter: Send Requests to All Nodes
+  // --------------------------------------------------------------------------
+  auto get_req = GetValueRequest{task->key, task->read_index};
+  
+  for (auto &[id, server] : servers_) {
+    // Optimization: Skip the node we already got a reply from (if passed in task)
+    if (id != task->replied_id) {
+      GetRPCStub(id)->SetRPCTimeOutMs(1000);
+      
+      // Synchronous call (as per your original code structure)
+      auto resp = GetRPCStub(id)->GetValue(get_req);
+      if (resp.err == kOk) {
+        call_back(resp);
+      }
+      
+      // Optimization: If we finished mid-loop, stop querying other servers
+      if (gather_value_done.load()) break;
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Timeout / Wait Logic
+  // --------------------------------------------------------------------------
+  raft::util::Timer timer;
+  timer.Reset();
+  
+  // Wait up to 1 second if still running (relevant if using async calls)
+  while (timer.ElapseMilliseconds() <= 1000) {
+    if (gather_value_done.load() == true) {
+      clear_gather_ctx();
+      return;
+    } else {
+      sleepMs(100);
+    }
+  }
+
+  // Handle Timeout
+  if (res->err == kOk) { 
+    // If err is still kOk but we are here, it means we never set it to 'done'
+    res->err = kRequestExecTimeout;
+  }
+  
   clear_gather_ctx();
 }
 
