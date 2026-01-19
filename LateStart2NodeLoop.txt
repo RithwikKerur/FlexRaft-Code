@@ -1,0 +1,143 @@
+Building project...
+rm -rf build
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=true -DLOG=off -DPERF=off
+-- The C compiler identification is AppleClang 15.0.0.15000040
+-- The CXX compiler identification is AppleClang 15.0.0.15000040
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Found GTest: /opt/homebrew/lib/cmake/GTest/GTestConfig.cmake (found version "1.16.0")
+-- Found ZLIB: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libz.tbd (found version "1.2.12")
+-- Found BZip2: /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/lib/libbz2.tbd (found version "1.0.8")
+-- Looking for BZ2_bzCompressInit
+-- Looking for BZ2_bzCompressInit - found
+-- Configuring done (1.7s)
+-- Generating done (0.1s)
+-- Build files have been written to: /Users/rithwikkerur/Documents/UCSB/PHD Research/Erasure Coding CFT/original/FlexRaft-Code/build
+mv build/compile_commands.json ./
+cmake --build build -j 4
+[  1%] Building CXX object RCF/CMakeFiles/rcf.dir/src/RCF/RCF.cpp.o
+[  3%] Linking CXX static library librcf.a
+[  3%] Built target rcf
+[  4%] Building CXX object raft/CMakeFiles/raft.dir/log_entry.cc.o
+[  6%] Building CXX object raft/CMakeFiles/raft.dir/serializer.cc.o
+[  7%] Building CXX object raft/CMakeFiles/raft.dir/util.cc.o
+[  9%] Building CXX object raft/CMakeFiles/raft.dir/encoder.cc.o
+[ 11%] Building CXX object raft/CMakeFiles/raft.dir/log_manager.cc.o
+[ 12%] Building CXX object raft/CMakeFiles/raft.dir/storage.cc.o
+[ 14%] Building CXX object raft/CMakeFiles/raft.dir/rcf_rpc.cc.o
+[ 15%] Building CXX object raft/CMakeFiles/raft.dir/raft.cc.o
+[ 17%] Building CXX object raft/CMakeFiles/raft.dir/raft_node.cc.o
+[ 19%] Linking CXX static library libraft.a
+[ 19%] Built target raft
+[ 20%] Building CXX object raft/test/CMakeFiles/log_manager_test.dir/log_manager_test.cc.o
+[ 22%] Building CXX object raft/test/CMakeFiles/raft_node_crash_test.dir/raft_node_crash_test.cc.o
+[ 23%] Building CXX object raft/test/CMakeFiles/encoder_test.dir/encoder_test.cc.o
+[ 25%] Building CXX object raft/test/CMakeFiles/raft_appendentries_test.dir/raft_appendentries_test.cc.o
+[ 26%] Linking CXX executable log_manager_test
+[ 28%] Linking CXX executable encoder_test
+[ 28%] Built target encoder_test
+[ 28%] Built target log_manager_test
+[ 30%] Building CXX object raft/test/CMakeFiles/raft_requestvote_test.dir/raft_requestvote_test.cc.o
+[ 31%] Building CXX object raft/test/CMakeFiles/raft_node_test.dir/raft_node_test.cc.o
+[ 33%] Linking CXX executable raft_appendentries_test
+[ 34%] Linking CXX executable raft_node_crash_test
+[ 34%] Built target raft_appendentries_test
+[ 36%] Building CXX object raft/test/CMakeFiles/retransfer_bench_test.dir/retransfer_bench_test.cc.o
+[ 36%] Built target raft_node_crash_test
+[ 38%] Building CXX object raft/test/CMakeFiles/rpc_bench_test.dir/rpc_bench_test.cc.o
+[ 39%] Linking CXX executable raft_requestvote_test
+[ 41%] Linking CXX executable raft_node_test
+[ 41%] Built target raft_requestvote_test
+[ 42%] Linking CXX executable rpc_bench_test
+[ 44%] Building CXX object raft/test/CMakeFiles/serializer_test.dir/serializer_test.cc.o
+[ 46%] Linking CXX executable retransfer_bench_test
+[ 46%] Built target raft_node_test
+[ 47%] Building CXX object raft/test/CMakeFiles/storage_test.dir/storage_test.cc.o
+[ 47%] Built target rpc_bench_test
+[ 47%] Built target retransfer_bench_test
+[ 49%] Building CXX object kv/CMakeFiles/kv.dir/type.cc.o
+[ 50%] Building CXX object kv/CMakeFiles/kv.dir/config.cc.o
+[ 52%] Building CXX object kv/CMakeFiles/kv.dir/kv_format.cc.o
+[ 53%] Linking CXX executable storage_test
+[ 55%] Building CXX object kv/CMakeFiles/kv.dir/storage_engine.cc.o
+[ 55%] Built target storage_test
+[ 57%] Building CXX object kv/CMakeFiles/kv.dir/kv_server.cc.o
+[ 58%] Building CXX object kv/CMakeFiles/kv.dir/rpc.cc.o
+[ 60%] Linking CXX executable serializer_test
+[ 60%] Built target serializer_test
+[ 61%] Building CXX object kv/CMakeFiles/kv.dir/kv_node.cc.o
+[ 63%] Building CXX object kv/CMakeFiles/kv.dir/client.cc.o
+[ 65%] Linking CXX static library libkv.a
+[ 65%] Built target kv
+[ 66%] Building CXX object kv/test/CMakeFiles/concurrent_queue_test.dir/concurrent_queue_test.cc.o
+[ 68%] Building CXX object kv/test/CMakeFiles/kv_cluster_test.dir/kv_cluster_test.cc.o
+[ 69%] Building CXX object kv/test/CMakeFiles/storage_engine_test.dir/storage_engine_test.cc.o
+[ 71%] Building CXX object kv/test/CMakeFiles/kv_server_test.dir/kv_server_test.cc.o
+[ 73%] Linking CXX executable storage_engine_test
+[ 74%] Linking CXX executable concurrent_queue_test
+[ 74%] Built target storage_engine_test
+[ 76%] Building CXX object bench/CMakeFiles/bench_server.dir/bench_server.cc.o
+[ 76%] Built target concurrent_queue_test
+[ 77%] Building CXX object bench/CMakeFiles/bench_client.dir/bench_client.cc.o
+[ 79%] Linking CXX executable kv_server_test
+[ 79%] Built target kv_server_test
+[ 80%] Building CXX object bench/CMakeFiles/ycsb_server.dir/ycsb_server.cc.o
+[ 82%] Linking CXX executable kv_cluster_test
+[ 84%] Linking CXX executable bench_server
+[ 84%] Built target kv_cluster_test
+[ 85%] Building CXX object bench/CMakeFiles/ycsb_client.dir/ycsb_client.cc.o
+[ 85%] Built target bench_server
+[ 87%] Linking CXX executable bench_client
+[ 88%] Building CXX object bench/CMakeFiles/readbench_client.dir/readbench_client.cc.o
+[ 88%] Built target bench_client
+[ 90%] Building CXX object bench/CMakeFiles/follower_recover_bench.dir/follower_recover_bench.cc.o
+[ 92%] Linking CXX executable ycsb_server
+[ 92%] Built target ycsb_server
+[ 93%] Building CXX object bench/CMakeFiles/testStorage.dir/testStorage.cc.o
+[ 95%] Linking CXX executable ycsb_client
+[ 96%] Linking CXX executable readbench_client
+[ 96%] Built target ycsb_client
+[ 98%] Linking CXX executable follower_recover_bench
+[ 98%] Built target readbench_client
+[ 98%] Built target follower_recover_bench
+[100%] Linking CXX executable testStorage
+[100%] Built target testStorage
+
+========================================================
+STARTING RUN #1: Duration = 60 seconds
+========================================================
+Cleaning up old databases and logs...
+Starting 3 initial servers (skipping 3 and 4)...
+Started Server 0 (PID: 10623)
+Started Server 1 (PID: 10624)
+Started Server 2 (PID: 10625)
+Waiting 2 seconds for cluster to stabilize...
+Starting Client (Backgrounded, Massive Write Count)...
+Client running... waiting 1 seconds to start late servers...
+Starting Late Server 3...
+Started Server 3 (PID: 10645)
+Starting Late Server 4...
+Started Server 4 (PID: 10646)
+Letting cluster run for remaining 60 seconds...
+Stopping all background processes...
+All processes stopped.
+
+========================================================
+STARTING RUN #2: Duration = 120 seconds
+========================================================
+Cleaning up old databases and logs...
+Starting 3 initial servers (skipping 3 and 4)...
+Started Server 0 (PID: 11051)
+Started Server 1 (PID: 11052)
+Started Server 2 (PID: 11053)
+Waiting 2 seconds for cluster to stabilize...
+Stopping all background processes...
+All processes stopped.
