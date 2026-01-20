@@ -48,6 +48,23 @@ class RocksDBEngine final : public StorageEngine {
 
   void Close() override { dbptr_->Close(); }
 
+  void GetAllKeys(std::vector<std::string> *keys) override {
+    keys->clear();
+    
+    rocksdb::ReadOptions options;
+    options.fill_cache = false; // Don't pollute cache with a full scan
+
+    rocksdb::Iterator *it = dbptr_->NewIterator(options);
+    
+    for (it->SeekToFirst(); it->Valid(); it->Next()) {
+      keys->push_back(it->key().ToString());
+    }
+    
+    // Always check status after iterating
+    assert(it->status().ok()); 
+    delete it;
+  }
+
  private:
   rocksdb::DB *dbptr_;
 };

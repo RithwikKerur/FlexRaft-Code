@@ -56,3 +56,5 @@ add_executable(follower_recover_bench follower_recover_bench.cc)
 target_link_libraries(follower_recover_bench kv gflags)
 
 
+add_executable(testStorage testStorage.cc)
+target_link_libraries(testStorage raft rcf kv)
