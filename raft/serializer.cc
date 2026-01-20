@@ -214,7 +214,7 @@ void Serializer::Deserialize(const RCF::ByteBuffer *buffer, RequestFragmentsRepl
 
 char *Serializer::PutPrefixLengthSlice(const Slice &slice, char *buf) {
   *reinterpret_cast<int *>(buf) = slice.size();
-  printf("Serializing size %d\n", slice.size());
+  //printf("Serializing size %d\n", slice.size());
   buf += sizeof(int);
   std::memcpy(buf, slice.data(), slice.size());
   return buf + slice.size();
@@ -223,14 +223,14 @@ char *Serializer::PutPrefixLengthSlice(const Slice &slice, char *buf) {
 char *Serializer::PutPrefixLengthSlices(const std::vector<Slice> &slices, char *buf) {
   // First, serialize the number of slices in the vector
   *reinterpret_cast<int *>(buf) = slices.size();
-  printf("Serializing %zu slices\n", slices.size());
+  //printf("Serializing %zu slices\n", slices.size());
   buf += sizeof(int);
   
   // Then serialize each slice with its own length prefix
   for (const auto &slice : slices) {
     // Write the size of this slice
     *reinterpret_cast<int *>(buf) = slice.size();
-    printf("Serializing slice size %zu\n", slice.size());
+    //printf("Serializing slice size %zu\n", slice.size());
     buf += sizeof(int);
     
     // Write the slice data
@@ -244,7 +244,7 @@ char *Serializer::PutPrefixLengthSlices(const std::vector<Slice> &slices, char *
 
 const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
   int size = *reinterpret_cast<const int *>(buf);
-  printf("DeSerializing size %d\n", size);
+  //printf("DeSerializing size %d\n", size);
 
   char *data = new char[size];
   buf += sizeof(int);
@@ -256,7 +256,7 @@ const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
 const char *Serializer::ParsePrefixLengthSlices(const char *buf, std::vector<Slice> *slices) {
   // Read the number of slices
   int num_slices = *reinterpret_cast<const int *>(buf);
-  printf("Deserializing %zu slices\n", num_slices);
+  //printf("Deserializing %zu slices\n", num_slices);
   buf += sizeof(int);
   
   slices->clear();
@@ -266,7 +266,7 @@ const char *Serializer::ParsePrefixLengthSlices(const char *buf, std::vector<Sli
   for (int i = 0; i < num_slices; ++i) {
     // Read slice size
     int slice_size = *reinterpret_cast<const int *>(buf);
-    printf("Deserializing slice size %zu\n", slice_size);
+    //printf("Deserializing slice size %zu\n", slice_size);
     buf += sizeof(int);
     
     // Create slice from data

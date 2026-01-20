@@ -105,18 +105,18 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
       // DEBUG: Check for garbage bytes in the data buffer BEFORE sending to Raft
       // Skip the 16-byte value header (4 bytes length + 12 bytes metadata)
       int check_start = start_offset + 16;
-      printf("DEBUG [KvServer]: Created data buffer size=%zu, start_offset=%d, checking from byte %d\n", size, start_offset, check_start);
+      //printf("DEBUG [KvServer]: Created data buffer size=%zu, start_offset=%d, checking from byte %d\n", size, start_offset, check_start);
       bool found_kv_garbage = false;
       for (int i = check_start; i < static_cast<int>(size); i++) {
         if (data[i] != 0) {
           if (!found_kv_garbage) {
-            printf("DEBUG [KvServer]: FIRST non-zero byte at position %d: 0x%02X\n", i, (unsigned char)data[i]);
+            //printf("DEBUG [KvServer]: FIRST non-zero byte at position %d: 0x%02X\n", i, (unsigned char)data[i]);
             found_kv_garbage = true;
           }
         }
       }
       if (!found_kv_garbage) {
-        printf("DEBUG [KvServer]: All bytes after start_offset+16 are zero (as expected)\n");
+        //printf("DEBUG [KvServer]: All bytes after start_offset+16 are zero (as expected)\n");
       }
 
       auto cmd = raft::CommandData{start_offset, raft::Slice(data, size)};
@@ -241,28 +241,30 @@ void KvServer::ApplyRequestCommandThread(KvServer *server) {
     int apply_cmd_size = ent.CommandData().size();
     int apply_start = ent.StartOffset();
     int apply_check_start = apply_start + 16;
-    printf("DEBUG [ApplyLogEntry]: BEFORE RaftEntryToRequest - CommandData size=%d, start_offset=%d, checking from byte %d\n",
-           apply_cmd_size, apply_start, apply_check_start);
+    //printf("DEBUG [ApplyLogEntry]: BEFORE RaftEntryToRequest - CommandData size=%d, start_offset=%d, checking from byte %d\n",
+          // apply_cmd_size, apply_start, apply_check_start);
 
+           /*
     bool found_before_garbage = false;
     for (int i = apply_check_start; i < apply_cmd_size; i++) {
       if (apply_cmd_data[i] != 0) {
         if (!found_before_garbage) {
-          printf("DEBUG [ApplyLogEntry]: BEFORE conversion - FIRST non-zero byte at position %d: 0x%02X\n",
+          //printf("DEBUG [ApplyLogEntry]: BEFORE conversion - FIRST non-zero byte at position %d: 0x%02X\n",
                  i, (unsigned char)apply_cmd_data[i]);
           found_before_garbage = true;
         }
       }
     }
     if (!found_before_garbage) {
-      printf("DEBUG [ApplyLogEntry]: BEFORE conversion - All bytes after start_offset+16 are zero (as expected)\n");
-    }
+      //printf("DEBUG [ApplyLogEntry]: BEFORE conversion - All bytes after start_offset+16 are zero (as expected)\n");
+    }*/
 
     Request req;
     // RawBytesToRequest(ent.CommandData().data(), &req);
     RaftEntryToRequest(ent, &req, server->Id(), server->ClusterServerNum());
 
     // DEBUG: Check for garbage bytes in req.value after RaftEntryToRequest
+    /*
     printf("DEBUG [ApplyLogEntry]: After RaftEntryToRequest, req.value size=%zu\n", req.value.size());
     if (req.value.size() > 16) {
       bool found_apply_garbage = false;
@@ -277,14 +279,14 @@ void KvServer::ApplyRequestCommandThread(KvServer *server) {
       if (!found_apply_garbage) {
         printf("DEBUG [ApplyLogEntry]: All bytes after position 16 are zero (as expected)\n");
       }
-    }
+    } 
 
-std::printf("S%d Apply request(key = %s value = %s) to db\n",
+    std::printf("S%d Apply request(key = %s value = %s) to db\n",
             server->Id(),
             req.key.c_str(),
             req.value.size() > 16 ? req.value.c_str() + 16 : "Empty/HeaderOnly");
     std::printf("Server Threshold1 %d Threshold2 %d Flag %d \n", server->channel_->GetThreshold1(), server->channel_->GetThreshold2(), server->channel_->GetFlag());
-
+*/
     std::string get_value;
     KvRequestApplyResult ar = {ent.Term(), kOk, std::string("")};
     switch (req.type) {
@@ -312,6 +314,7 @@ std::printf("S%d Apply request(key = %s value = %s) to db\n",
       // 1. Snapshot the new values atomically so they don't change while we loop
       int new_t1 = server->channel_->GetThreshold1();
       int new_t2 = server->channel_->GetThreshold2();
+      bool keyNotFound = false;
 
       // --- PROCESS THRESHOLD 1 ---
       // Start at last + 1 so we don't re-process the previously finished index
@@ -334,13 +337,16 @@ std::printf("S%d Apply request(key = %s value = %s) to db\n",
               std::cerr << "CRITICAL ERROR: Failed to write key " << index << " to DB!" << std::endl;
           } else {
               std::printf("Successfully stored %s (%zu bytes)\n", index.c_str(), value.size());
+              // Update local tracker
+              server->last_threshold_1 = i;
           }
         } else {
           std::printf("Key %s not found during T1 update.\n", index.c_str());
+          keyNotFound = true;
+          break;
         }
       }
-      // Update local tracker
-      server->last_threshold_1 = new_t1;
+      
 
       // --- PROCESS THRESHOLD 2 ---
       for (int i = server->last_threshold_2 + 1; i <= new_t2; i++) {
@@ -362,15 +368,17 @@ std::printf("S%d Apply request(key = %s value = %s) to db\n",
               std::cerr << "CRITICAL ERROR: Failed to write key " << index << " to DB!" << std::endl;
           } else {
               std::printf("Successfully stored %s (%zu bytes)\n", index.c_str(), value.size());
+              server->last_threshold_2 = i;
           }
+        } else {
+          std::printf("Key %s not found during T2 update.\n", index.c_str());
+          keyNotFound= true;
+          break;
         }
       }
-      // Update local tracker
-      server->last_threshold_2 = new_t2;
-
-      // IMPORTANT: Reset the flag so this block doesn't run infinitely
-      // Assuming you have a setter for this
-      server->channel_->SetFlag(false); 
+      if (!keyNotFound){
+        server->channel_->SetFlag(false); 
+      }
     }
     server->applied_index_ = ent.Index();
 
@@ -495,10 +503,8 @@ void KvServer::ExecuteGetOperation(const Request *request, Response *resp) {
   // 4. Append the Actual Value
   insert_full_entry.append(*res.value);
 
-  LOG(raft::util::kRaft, "Reconstructed Value %s \n", insert_full_entry.c_str()+16);
-  LOG(raft::util::kRaft, "Server String Size: %lu\n", insert_full_entry.size());
-
   // DEBUG: Check final insert_full_entry for garbage bytes after position 16
+  /*
   printf("DEBUG [ExecuteGetOperation]: Final insert_full_entry size=%zu\n", insert_full_entry.size());
   if (insert_full_entry.size() > 16) {
     bool found_final_garbage = false;
@@ -515,7 +521,7 @@ void KvServer::ExecuteGetOperation(const Request *request, Response *resp) {
       printf("DEBUG [ExecuteGetOperation]: All bytes after position 16 are zero (as expected)\n");
     }
   }
-
+  */
   // 5. Use it
   resp->value = insert_full_entry;
   resp->err = kOk;

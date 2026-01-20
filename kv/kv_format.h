@@ -31,9 +31,7 @@ inline char *MakePrefixLengthKey(const std::string &s, char *buf) {
 
 inline char *GetKeyFromPrefixLengthFormat(char *buf, std::string *key) {
   int key_size = *reinterpret_cast<int *>(buf);
-  printf("DEBUG: Parsing Buffer. Header says Length = %d\n", key_size);
   *key = std::string(buf + sizeof(int), key_size);
-  printf("DEBUG: %s\n", buf+sizeof(int));
   return buf + sizeof(int) + key_size;
 }
 }  // namespace kv

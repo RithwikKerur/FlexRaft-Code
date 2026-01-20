@@ -125,6 +125,7 @@ void ExecuteBench(kv::KvServiceClient *client, const std::vector<KvPair> &bench)
   for (const auto &p : bench) {
     std::string get_val;
     auto stat = client->Get(p.first, &get_val);
+    /*
     printf("DEBUG: bench Val %s\n", get_val.c_str());
     printf("DEBUG: get_val.size() = %zu\n", get_val.size());
     printf("DEBUG: get_val.length() = %zu\n", get_val.length());
@@ -160,7 +161,7 @@ void ExecuteBench(kv::KvServiceClient *client, const std::vector<KvPair> &bench)
     } else if (!mismatch_found) {
       printf("Size mismatch: get_val.size()=%zu, p.second.size()=%zu\n", 
               get_val.size(), p.second.size());
-    }
+    }*/
     if (stat.err != kv::kOk) {
     printf( "Debug: Check Failed - stat.err is NOT kOk. (Actual: %d)", stat.err);
     } else if (get_val != p.second) {

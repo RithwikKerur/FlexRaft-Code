@@ -141,9 +141,9 @@ void RaftState::Process(AppendEntriesArgs *args, AppendEntriesReply *reply) {
 
   LOG(util::kRaft,
       "S%d Receive AppendEntries From S%d(EC) (T%d PI=%d PT=%d PK=%d EntCnt=%d "
-      "LCommit=%d)",
+      "LCommit=%d Threshold1: %d, Threshold2 %d )",
       id_, args->leader_id, args->term, args->prev_log_index, args->prev_log_term, args->prev_k,
-      args->entries.size(), args->leader_commit);
+      args->entries.size(), args->leader_commit, args->threshold1, args->threshold2);
 
   reply->reply_id = id_;
   reply->chunk_info_cnt = 0;
@@ -207,7 +207,7 @@ void RaftState::Process(AppendEntriesArgs *args, AppendEntriesReply *reply) {
   }
 
 
-  LOG(util::kRaft, "Current Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
+  //LOG(util::kRaft, "Current Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
 
   // TODO: Notify applier thread to apply newly committed entries to state
   // machine
@@ -447,7 +447,7 @@ ProposeResult RaftState::Propose(const CommandData &command) {
   int cmd_size = command.command_data.size();
   int cmd_check_start = command.start_fragment_offset + 16;
   printf("DEBUG [Propose]: CommandData size=%d, start_offset=%d, checking from byte %d\n", cmd_size, command.start_fragment_offset, cmd_check_start);
-
+  /*
   // Check bytes after start_fragment_offset + 16 for non-zero values
   bool found_garbage = false;
   for (int i = cmd_check_start; i < cmd_size; i++) {
@@ -460,7 +460,7 @@ ProposeResult RaftState::Propose(const CommandData &command) {
   }
   if (!found_garbage) {
     printf("DEBUG [Propose]: All bytes after start_offset+16 are zero (as expected)\n");
-  }
+  }*/
 
   entry.SetIndex(next_entry_index);
   entry.SetTerm(CurrentTerm());
@@ -645,7 +645,7 @@ void RaftState::tryUpdateCommitIndex() {
   }
 
   UpdateExtendedThresholds();
-  LOG(util::kRaft, "Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
+  //LOG(util::kRaft, "Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
 }
 
 void RaftState::UpdateExtendedThresholds() {
@@ -671,7 +671,6 @@ void RaftState::UpdateExtendedThresholds() {
         for (auto id : peers_) {
              auto node = raft_peer_[id];
              if (node->matchChunkInfo.count(N)){
-              std::cout << "Node " << id << " agrees (has chunk " << N << ")" << std::endl;
               agree_cnt++;
              } 
         }
@@ -1015,37 +1014,9 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
   }*/
   Encoder::EncodingResults results;
   auto data_to_encode = ent->CommandData().data() + ent->StartOffset();
-  auto datasize_to_encode = ent->CommandData().size() - ent->StartOffset();
-
-  // Calculate required padding to make size divisible by k
-  auto fragment_size = (datasize_to_encode + k - 1) / k;
-  auto padded_size = fragment_size * k;
-
-  // Create padded buffer if needed
-  char* padded_data = nullptr;
-  Slice encode_slice;
-  if (padded_size > datasize_to_encode) {
-    // Need padding - create zero-initialized buffer
-    padded_data = new char[padded_size]();  // () initializes to zero
-    std::memcpy(padded_data, data_to_encode, datasize_to_encode);
-    encode_slice = Slice(padded_data, padded_size);
-    printf("DEBUG [EncodeRaftEntry]: Padded from %zu to %zu bytes\n", datasize_to_encode, padded_size);
-  } else {
-    // No padding needed
-    encode_slice = Slice(data_to_encode, datasize_to_encode);
-  }
-
-  printf("About to encode: size=%zu, first 16 bytes: ", encode_slice.size());
-  for (int i = 0; i < 16 && i < encode_slice.size(); i++) {
-      printf("%02X ", (unsigned char)encode_slice.data()[i]);
-  }
-  printf("\n");
+  auto datasize_to_encode = ent->CommandData().size() - ent->StartOffset();                  
+  Slice encode_slice = Slice(data_to_encode, datasize_to_encode);
   encoder_.EncodeSlice(encode_slice, k, m, &results);
-
-  // Clean up padded buffer if we allocated one
-  if (padded_data != nullptr) {
-    delete[] padded_data;
-  }
   
   for (int i = 0; i < GetClusterServerNumber(); i++){
     LogEntry encoded_ent;
@@ -1060,13 +1031,13 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
     std::vector<Slice> slices;
     for (int j = 0; j < k; j++){
       slices.push_back(results.at(i*k + j));
-      LOG(util::kRaft, "Adding slice %d to node %d", (i*k)+j, i);
     }
     encoded_ent.SetFragmentSlice(slices);
     stripe->fragments[i] = encoded_ent;
   }
 
   // DEBUG: Verify encoding by decoding back and comparing with original
+  /*
   printf("DEBUG [EncodeRaftEntry]: Verifying encoding by decoding fragments back...\n");
 
   // Test decoding with slices 0, 3, and 6 (non-consecutive fragments)
@@ -1112,7 +1083,7 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
     }
   } else {
     printf("DEBUG [EncodeRaftEntry]: Decode FAILED - cannot verify encoding\n");
-  }
+  } */
 }
 
 bool RaftState::DecodingRaftEntry(Stripe *stripe, LogEntry *ent) {
@@ -1176,26 +1147,6 @@ bool RaftState::DecodingRaftEntry(Stripe *stripe, LogEntry *ent) {
   ent->SetStartOffset(not_encoded_size);
   ent->SetChunkInfo(ChunkInfo{0, ent->Index()});
   LOG(util::kRaft, "S%d Decode Results: Ent(%s)", id_, ent->ToString().c_str());
-
-  // DEBUG: Check for garbage bytes in decoded CommandData
-  // Skip the 16-byte value header (4 bytes length + 12 bytes metadata)
-  int dec_check_start = not_encoded_size + 16;
-  printf("DEBUG [DecodingRaftEntry]: I%d Decoded CommandData size=%d, start_offset=%d, checking from byte %d\n",
-         stripe->raft_index, origin_size, not_encoded_size, dec_check_start);
-
-  bool found_decoded_garbage = false;
-  for (int i = dec_check_start; i < origin_size; i++) {
-    if (data[i] != 0) {
-      if (!found_decoded_garbage) {
-        printf("DEBUG [DecodingRaftEntry]: I%d FIRST non-zero byte at position %d: 0x%02X\n",
-               stripe->raft_index, i, (unsigned char)data[i]);
-        found_decoded_garbage = true;
-      }
-    }
-  }
-  if (!found_decoded_garbage) {
-    printf("DEBUG [DecodingRaftEntry]: I%d All bytes after start_offset+16 are zero (as expected)\n", stripe->raft_index);
-  }
 
   return true;
 }

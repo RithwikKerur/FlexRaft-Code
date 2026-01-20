@@ -33,7 +33,7 @@ void CollectShardsFromValue(const std::string& raw_val,
         std::string chunk_data(ptr + current_offset, slice_len);
         
         raft::raft_frag_id_t frag_id = static_cast<raft::raft_frag_id_t>(internal_index + db_index) ;
-        std::cout << "internal index " << internal_index << "\n" << std::endl;
+        std::cout << "internal index " << internal_index << "and size: " << slice_len << "\n" << std::endl;
         // Check if we already have this fragment (from another DB)
         if (accumulator.find(frag_id) == accumulator.end()) {
              accumulator.insert({frag_id, raft::Slice(chunk_data)});
@@ -146,7 +146,102 @@ void ViewDistributedDBs(const std::string& base_name, int num_dbs) {
       delete db;
   }
 }
+
+void CalculateDatabaseSizes(const std::string& base_name, int num_dbs) {
+    std::vector<kv::StorageEngine*> dbs;
+    std::vector<size_t> db_sizes;      // To store total bytes per DB
+    std::vector<int> db_key_counts;    // To store total keys found per DB
+
+    // ---------------------------------------------------------
+    // 1. Open All Databases
+    // ---------------------------------------------------------
+    std::cout << "Opening " << num_dbs << " databases for size calculation..." << std::endl;
+    
+    // Adjusted loop to start at 1 (assuming testdb1, testdb2, etc.)
+    for (int i = 0; i <= num_dbs; ++i) {
+        std::string db_name = base_name + std::to_string(i); 
+        auto* db = kv::StorageEngine::NewRocksDBEngine(db_name);
+        
+        if (!db) {
+            std::cerr << "Failed to open " << db_name << "!" << std::endl;
+            // In production, handle cleanup of previously opened DBs here
+            return; 
+        }
+        
+        dbs.push_back(db);
+        db_sizes.push_back(0);      // Initialize counter for this DB
+        db_key_counts.push_back(0); // Initialize counter for this DB
+        std::cout << "  - Opened " << db_name << std::endl;
+    }
+
+    if (dbs.empty()) return;
+
+    // ---------------------------------------------------------
+    // 2. Get Master Key List
+    // ---------------------------------------------------------
+    // We assume the first DB (dbs[0]) has a complete list of keys for iteration.
+    std::vector<std::string> keys;
+    dbs[0]->GetAllKeys(&keys);
+    std::cout << "Found " << keys.size() << " keys in master list. Calculating sizes...\n";
+    std::cout << "------------------------------------------------------------\n";
+
+    // ---------------------------------------------------------
+    // 3. Process Each Key & Accumulate Sizes
+    // ---------------------------------------------------------
+    for (const auto &key : keys) {
+        // Query EVERY Database for this specific key
+        for (size_t i = 0; i < dbs.size(); ++i) {
+            std::string raw_val;
+            
+            // Attempt to retrieve the value
+            bool found = dbs[i]->Get(key, &raw_val);
+            
+            if (found) {
+                // Add the raw size of the stored blob to our counters
+                db_sizes[i] += raw_val.size();
+                db_key_counts[i]++;
+            }
+        }
+    }
+
+    // ---------------------------------------------------------
+    // 4. Print Report
+    // ---------------------------------------------------------
+    std::cout << std::left 
+              << std::setw(15) << "DB Name" 
+              << std::setw(15) << "Keys Stored" 
+              << std::setw(20) << "Total Bytes" 
+              << "Size (KB)" << std::endl;
+    std::cout << "------------------------------------------------------------" << std::endl;
+
+    size_t total_cluster_bytes = 0;
+
+    for (size_t i = 0; i < num_dbs; ++i) {
+        std::string name = base_name + std::to_string(i + 1); // Reconstruct name
+        double size_kb = db_sizes[i] / 1024.0;
+        total_cluster_bytes += db_sizes[i];
+
+        std::cout << std::left 
+                  << std::setw(15) << name
+                  << std::setw(15) << db_key_counts[i] 
+                  << std::setw(20) << db_sizes[i] 
+                  << std::fixed << std::setprecision(2) << size_kb << " KB" 
+                  << std::endl;
+    }
+
+    std::cout << "------------------------------------------------------------" << std::endl;
+    std::cout << "Total Cluster Storage: " << total_cluster_bytes << " bytes (" 
+              << (total_cluster_bytes / 1024.0) << " KB)" << std::endl;
+
+    // ---------------------------------------------------------
+    // 5. Cleanup Databases
+    // ---------------------------------------------------------
+    for (auto* db : dbs) {
+        delete db;
+    }
+}
 /*
+
 void ViewDBEntries(const std::string& filename) {
   kv::StorageEngine *db = kv::StorageEngine::NewRocksDBEngine(filename);
 
@@ -192,6 +287,7 @@ void ViewDBEntries(const std::string& filename) {
 
 int main(int argc, char* argv[]) {
 
-  ViewDistributedDBs("/Users/rithwikkerur/Documents/UCSB/data/testdb", 3);
+  //ViewDistributedDBs("/Users/rithwikkerur/Documents/UCSB/data/testdb", 4);
+  CalculateDatabaseSizes("/Users/rithwikkerur/Documents/UCSB/data/testdb", 5);
   return 0;
 }
