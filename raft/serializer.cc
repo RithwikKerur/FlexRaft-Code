@@ -147,18 +147,79 @@ void Serializer::Serialize(const AppendEntriesArgs *args, RCF::ByteBuffer *buffe
 
 void Serializer::Deserialize(const RCF::ByteBuffer *buffer, AppendEntriesArgs *args) {
   const char *src = buffer->getPtr();
+  auto buffer_size = buffer->getLength();
+
+  // Validate buffer size
+  if (buffer_size < kAppendEntriesArgsHdrSize) {
+    // Buffer too small - cannot deserialize, set safe defaults
+    printf("ERROR: AppendEntriesArgs buffer too small: %zu < %zu\n", buffer_size, kAppendEntriesArgsHdrSize);
+    args->term = 0;
+    args->leader_id = 0;
+    args->prev_log_index = 0;
+    args->prev_log_term = 0;
+    args->leader_commit = 0;
+    args->entry_cnt = 0;
+    return;
+  }
+
   std::memcpy(args, src, kAppendEntriesArgsHdrSize);
   src += kAppendEntriesArgsHdrSize;
+
+  // Detect and log corruption
+  if (static_cast<int64_t>(args->term) < 0 || args->term > 2000000000) {
+    printf("ERROR: Corrupted AppendEntriesArgs - term=%u (0x%08x) buffer_size=%zu\n",
+           args->term, args->term, buffer_size);
+    // Reset to safe values
+    args->term = 0;
+    args->leader_id = 0;
+    args->entry_cnt = 0;
+    return;
+  }
+
+  // Validate entry_cnt
+  if (args->entry_cnt < 0 || args->entry_cnt > 10000) {
+    printf("ERROR: Corrupted entry_cnt=%lld in AppendEntriesArgs\n", (long long)args->entry_cnt);
+    args->entry_cnt = 0;
+    return;
+  }
+
   args->entries.reserve(args->entry_cnt);
+  const char *buffer_end = buffer->getPtr() + buffer_size;
+
   for (decltype(args->entry_cnt) i = 0; i < args->entry_cnt; ++i) {
+    // Check if we have enough buffer space remaining
+    if (src >= buffer_end) {
+      printf("ERROR: Buffer overflow in AppendEntriesArgs - ran out of buffer at entry %lld/%lld\n",
+             (long long)i, (long long)args->entry_cnt);
+      args->entry_cnt = i;  // Truncate to entries we successfully parsed
+      return;
+    }
+
     LogEntry ent;
-    src = deserialize_logentry_helper(src, &ent);
+    const char *new_src = deserialize_logentry_helper(src, &ent);
+
+    // Validate that deserialization advanced the pointer reasonably
+    if (new_src <= src || new_src > buffer_end) {
+      printf("ERROR: Invalid deserialization - pointer moved from %p to %p (buffer_end=%p)\n",
+             (void*)src, (void*)new_src, (void*)buffer_end);
+      args->entry_cnt = i;
+      return;
+    }
+
+    src = new_src;
     args->entries.push_back(ent);
   }
 }
 
 void Serializer::Serialize(const AppendEntriesReply *reply, RCF::ByteBuffer *buffer) {
   auto dst = buffer->getPtr();
+
+  // Log what we're about to serialize
+  if (static_cast<int64_t>(reply->term) < 0 || reply->term > 2000000000) {
+    printf("SENDER ERROR: Serializing corrupted AppendEntriesReply - term=%u (0x%08x) success=%d expect_index=%u reply_id=%u chunk_cnt=%d\n",
+           reply->term, reply->term, reply->success, reply->expect_index, reply->reply_id, reply->chunk_info_cnt);
+  }
+
   // std::memcpy(dst, reply, sizeof(AppendEntriesReply));
   std::memcpy(dst, reply, kAppendEntriesReplyHdrSize);
   dst += kAppendEntriesReplyHdrSize;
@@ -170,8 +231,49 @@ void Serializer::Serialize(const AppendEntriesReply *reply, RCF::ByteBuffer *buf
 
 void Serializer::Deserialize(const RCF::ByteBuffer *buffer, AppendEntriesReply *reply) {
   auto src = buffer->getPtr();
+  auto buffer_size = buffer->getLength();
+
+  // Validate buffer size
+  if (buffer_size < kAppendEntriesReplyHdrSize) {
+    printf("ERROR: AppendEntriesReply buffer too small: %zu < %zu\n", buffer_size, kAppendEntriesReplyHdrSize);
+    reply->term = 0;
+    reply->success = 0;
+    reply->expect_index = 0;
+    reply->reply_id = 0;
+    reply->padding = 0;
+    reply->chunk_info_cnt = 0;
+    return;
+  }
+
   std::memcpy(reply, src, kAppendEntriesReplyHdrSize);
   src += kAppendEntriesReplyHdrSize;
+
+  // Detect term corruption
+  if (static_cast<int64_t>(reply->term) < 0 || reply->term > 2000000000) {
+    printf("ERROR: Corrupted AppendEntriesReply - term=%u (0x%08x) success=%d expect_index=%u reply_id=%u\n",
+           reply->term, reply->term, reply->success, reply->expect_index, reply->reply_id);
+    reply->term = 0;
+    reply->success = 0;
+    reply->chunk_info_cnt = 0;
+    return;
+  }
+
+  // Validate chunk_info_cnt before using it
+  if (reply->chunk_info_cnt < 0 || reply->chunk_info_cnt > 1000) {
+    printf("ERROR: Corrupted chunk_info_cnt=%d in AppendEntriesReply\n", reply->chunk_info_cnt);
+    reply->chunk_info_cnt = 0;
+    return;
+  }
+
+  // Validate remaining buffer size
+  size_t required_size = kAppendEntriesReplyHdrSize + (reply->chunk_info_cnt * sizeof(ChunkInfo));
+  if (buffer_size < required_size) {
+    printf("ERROR: AppendEntriesReply buffer size mismatch: have %zu, need %zu for %d chunks\n",
+           buffer_size, required_size, reply->chunk_info_cnt);
+    reply->chunk_info_cnt = 0;
+    return;
+  }
+
   for (int i = 0; i < reply->chunk_info_cnt; ++i) {
     ChunkInfo ci;
     std::memcpy(&ci, src, sizeof(ChunkInfo));
@@ -202,12 +304,49 @@ void Serializer::Serialize(const RequestFragmentsReply *reply, RCF::ByteBuffer *
 
 void Serializer::Deserialize(const RCF::ByteBuffer *buffer, RequestFragmentsReply *reply) {
   const char *src = buffer->getPtr();
+  auto buffer_size = buffer->getLength();
+
+  // Validate buffer size
+  if (buffer_size < kRequestFragmentsReplyHdrSize) {
+    printf("ERROR: RequestFragmentsReply buffer too small: %zu < %zu\n", buffer_size, kRequestFragmentsReplyHdrSize);
+    reply->entry_cnt = 0;
+    return;
+  }
+
   std::memcpy(reply, src, kRequestFragmentsReplyHdrSize);
   src += kRequestFragmentsReplyHdrSize;
+
+  // Validate entry_cnt
+  if (reply->entry_cnt < 0 || reply->entry_cnt > 10000) {
+    printf("ERROR: Corrupted entry_cnt=%d in RequestFragmentsReply\n", reply->entry_cnt);
+    reply->entry_cnt = 0;
+    return;
+  }
+
   reply->fragments.reserve(reply->entry_cnt);
+  const char *buffer_end = buffer->getPtr() + buffer_size;
+
   for (decltype(reply->entry_cnt) i = 0; i < reply->entry_cnt; ++i) {
+    // Check if we have enough buffer space remaining
+    if (src >= buffer_end) {
+      printf("ERROR: Buffer overflow in RequestFragmentsReply - ran out of buffer at entry %d/%d\n",
+             i, reply->entry_cnt);
+      reply->entry_cnt = i;
+      return;
+    }
+
     LogEntry ent;
-    src = deserialize_logentry_helper(src, &ent);
+    const char *new_src = deserialize_logentry_helper(src, &ent);
+
+    // Validate that deserialization advanced the pointer reasonably
+    if (new_src <= src || new_src > buffer_end) {
+      printf("ERROR: Invalid deserialization in RequestFragmentsReply - pointer moved from %p to %p (buffer_end=%p)\n",
+             (void*)src, (void*)new_src, (void*)buffer_end);
+      reply->entry_cnt = i;
+      return;
+    }
+
+    src = new_src;
     reply->fragments.push_back(ent);
   }
 }
@@ -246,6 +385,13 @@ const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
   int size = *reinterpret_cast<const int *>(buf);
   //printf("DeSerializing size %d\n", size);
 
+  // Validate size before allocating
+  if (size < 0 || size > 100*1024*1024) {  // Max 100MB per slice
+    printf("ERROR: Invalid slice size=%d in ParsePrefixLengthSlice\n", size);
+    *slice = Slice(nullptr, 0);
+    return buf + sizeof(int);  // Skip the size field
+  }
+
   char *data = new char[size];
   buf += sizeof(int);
   std::memcpy(data, buf, size);
@@ -258,24 +404,39 @@ const char *Serializer::ParsePrefixLengthSlices(const char *buf, std::vector<Sli
   int num_slices = *reinterpret_cast<const int *>(buf);
   //printf("Deserializing %zu slices\n", num_slices);
   buf += sizeof(int);
-  
+
+  // Validate num_slices
+  if (num_slices < 0 || num_slices > 10000) {
+    printf("ERROR: Invalid num_slices=%d in ParsePrefixLengthSlices\n", num_slices);
+    slices->clear();
+    return buf;
+  }
+
   slices->clear();
   slices->reserve(num_slices);
-  
+
   // Read each slice
   for (int i = 0; i < num_slices; ++i) {
     // Read slice size
     int slice_size = *reinterpret_cast<const int *>(buf);
     //printf("Deserializing slice size %zu\n", slice_size);
     buf += sizeof(int);
-    
+
+    // Validate slice_size
+    if (slice_size < 0 || slice_size > 100*1024*1024) {  // Max 100MB per slice
+      printf("ERROR: Invalid slice_size=%d in ParsePrefixLengthSlices at slice %d/%d\n",
+             slice_size, i, num_slices);
+      // Return what we've parsed so far
+      return buf;
+    }
+
     // Create slice from data
     char *data = new char[slice_size];
     std::memcpy(data, buf, slice_size);
     slices->emplace_back(data, slice_size);
     buf += slice_size;
   }
-  
+
   return buf;
 }
 
@@ -314,8 +475,6 @@ size_t Serializer::getSerializeSize(const LogEntry &entry) {
   for (const auto &slice : entry.FragmentSlice()) {
     ret += sizeof(int) + slice.size();  // each slice with its size prefix
   }
-  
-  printf("LogEntry Fragments size %zu\n", entry.GetFragmentsSize());
 
   return ret;
 }

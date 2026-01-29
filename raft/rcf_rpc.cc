@@ -36,7 +36,7 @@ RCF::ByteBuffer RaftRPCService::RequestVote(const RCF::ByteBuffer &arg_buf) {
 
 RCF::ByteBuffer RaftRPCService::AppendEntries(const RCF::ByteBuffer &arg_buf) {
   AppendEntriesArgs args;
-  AppendEntriesReply reply;
+  AppendEntriesReply reply = {};  // Zero-initialize to prevent uninitialized fields
 
   auto serializer = Serializer::NewSerializer();
   serializer.Deserialize(&arg_buf, &args);

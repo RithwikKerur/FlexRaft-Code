@@ -25,8 +25,8 @@ struct Stripe {
 // different parameters. The encoding and decoding of a raft entry is using an
 // RS erasure coding scheme
 class Encoder {
-  static constexpr int kMaxK = 9;
-  static constexpr int kMaxM = 9;
+  static constexpr int kMaxK = 16;
+  static constexpr int kMaxM = 128;
 
   // The RS encoding process may require fragment length to be aligned. When
   // kAlignment = 1, there is no need to padding the alignment.

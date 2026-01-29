@@ -207,7 +207,7 @@ void RaftState::Process(AppendEntriesArgs *args, AppendEntriesReply *reply) {
   }
 
 
-  //LOG(util::kRaft, "Current Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
+  LOG(util::kRaft, "Current Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
 
   // TODO: Notify applier thread to apply newly committed entries to state
   // machine
@@ -598,7 +598,8 @@ void RaftState::tryUpdateCommitIndex() {
     }
 
     // Last encoding k is like a requirement for commitment
-    auto commit_require_k = GetLastEncodingK(N);
+    auto commit_require_k = GetClusterServerNumber() - livenessLevel();
+
 
     // Get the number of agreement for now
     for (auto id : peers_) {
@@ -645,7 +646,7 @@ void RaftState::tryUpdateCommitIndex() {
   }
 
   UpdateExtendedThresholds();
-  //LOG(util::kRaft, "Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
+  LOG(util::kRaft, "Threshold 1 %d,  Threshold 2 %d", Threshold1(), Threshold2());
 }
 
 void RaftState::UpdateExtendedThresholds() {
@@ -674,7 +675,7 @@ void RaftState::UpdateExtendedThresholds() {
               agree_cnt++;
              } 
         }
-        LOG(util::kRaft, "Agree Count for %d is %d. Total_servers %d", N, agree_cnt, peers_.size());
+        //LOG(util::kRaft, "Agree Count for %d is %d. Total_servers %d", N, agree_cnt, peers_.size());
         // Check T1
         if (MatchThreshold1(agree_cnt)) {
             SetThreshold1(N);
@@ -1031,6 +1032,7 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
     std::vector<Slice> slices;
     for (int j = 0; j < k; j++){
       slices.push_back(results.at(i*k + j));
+      //printf("Adding slice %d to node %d\n", i*k+j, i);
     }
     encoded_ent.SetFragmentSlice(slices);
     stripe->fragments[i] = encoded_ent;
@@ -1178,9 +1180,25 @@ void RaftState::ReplicateNewProposeEntry(raft_index_t raft_index) {
   PERF_LOG(&perf_counter);
 #endif
   encoded_stripe_.insert_or_assign(raft_index, stripe);
-  UpdateLastEncodingK(raft_index, encode_k);
+  
   LOG(util::kRaft, "S%d Updates I%d Last Encoding K to %d", id_, raft_index, encode_k);
+  
+    LOG(util::kRaft, "S%d Estimate Live server %d, LastPoint %d, Do normal replication", id_,
+        live_servers, AliveServersOfLastPoint());
+    // Otherwise send these entries as original raft does
+    for (auto peer_id : peers_) {
+      if (peer_id != id_) {
+        if (live_monitor_.IsAlive(peer_id)) {
+          sendAppendEntries(peer_id);
+        } else {
+          sendHeartBeat(peer_id);
+        }
+      }
+    }
+  // Reset replication timer
+  resetReplicateTimer();
 
+    /*
   // Coding scheme may need change for previous log entries
   if (live_servers != AliveServersOfLastPoint()) {
     LOG(util::kRaft, "S%d Estimate Live server %d, LastPoint %d, do reencoding", id_, live_servers,
@@ -1200,10 +1218,7 @@ void RaftState::ReplicateNewProposeEntry(raft_index_t raft_index) {
         }
       }
     }
-  }
-
-  // Reset replication timer
-  resetReplicateTimer();
+  }*/
 }
 
 void RaftState::ReplicateEntries() {
@@ -1211,6 +1226,7 @@ void RaftState::ReplicateEntries() {
   auto live_servers = live_monitor_.LiveNumber();
   LOG(util::kRaft, "S%d Estimate Now Live Servers=%d, Last Point=%d", id_, live_servers,
       AliveServersOfLastPoint());
+      /*
   if (live_servers != AliveServersOfLastPoint()) {
     UpdateAliveServers(live_servers);
     MaybeReEncodingAndReplicate();
@@ -1225,7 +1241,17 @@ void RaftState::ReplicateEntries() {
         }
       }
     }
-  }
+  } */
+ //TODO re add code 
+ for (auto peer_id : peers_) {
+      if (peer_id != id_) {
+        if (live_monitor_.IsAlive(peer_id)) {
+          sendAppendEntries(peer_id);
+        } else {
+          sendHeartBeat(peer_id);
+        }
+      }
+    }
 }
 
 void RaftState::MaybeReEncodingAndReplicate() {
@@ -1242,7 +1268,7 @@ void RaftState::MaybeReEncodingAndReplicate() {
   auto last_index = lm_->LastLogEntryIndex();
   for (auto raft_index = CommitIndex() + 1; raft_index <= last_index; ++raft_index) {
     // last_k = 0 means this entry has not been encoded yet
-    auto last_k = GetLastEncodingK(raft_index);
+    auto last_k =  GetClusterServerNumber() - livenessLevel();
     if (last_k != 0 && encode_k >= last_k) {
       continue;
     }
@@ -1250,7 +1276,6 @@ void RaftState::MaybeReEncodingAndReplicate() {
     auto stripe = new Stripe();
     EncodeRaftEntry(raft_index, encode_k, encode_m, stripe);
     encoded_stripe_.insert_or_assign(raft_index, stripe);
-    UpdateLastEncodingK(raft_index, encode_k);
     LOG(util::kRaft, "S%d Encode Entry I%d with (K%d, M%d)", id_, raft_index, encode_k, encode_m);
   }
 
@@ -1398,7 +1423,7 @@ void RaftState::sendHeartBeat(raft_node_id_t peer) {
   auto next_index = raft_peer_[peer]->NextIndex();
   auto prev_index = next_index - 1;
   auto prev_term = lm_->TermAt(prev_index);
-  raft_encoding_param_t prev_k = GetLastEncodingK(prev_index);
+  raft_encoding_param_t prev_k = GetClusterServerNumber() - livenessLevel();
 
   LOG(util::kRaft, "S%d send heartbeat to S%d(I%d->I%d)", id_, peer, next_index, next_index);
   auto args = AppendEntriesArgs{CurrentTerm(), id_,           prev_index, prev_term,

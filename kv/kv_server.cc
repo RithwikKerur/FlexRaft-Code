@@ -101,24 +101,6 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
       raft::util::Timer commit_timer;
       commit_timer.Reset();
       LOG(raft::util::kRaft, "Command Data size: %d", size);
-
-      // DEBUG: Check for garbage bytes in the data buffer BEFORE sending to Raft
-      // Skip the 16-byte value header (4 bytes length + 12 bytes metadata)
-      int check_start = start_offset + 16;
-      //printf("DEBUG [KvServer]: Created data buffer size=%zu, start_offset=%d, checking from byte %d\n", size, start_offset, check_start);
-      bool found_kv_garbage = false;
-      for (int i = check_start; i < static_cast<int>(size); i++) {
-        if (data[i] != 0) {
-          if (!found_kv_garbage) {
-            //printf("DEBUG [KvServer]: FIRST non-zero byte at position %d: 0x%02X\n", i, (unsigned char)data[i]);
-            found_kv_garbage = true;
-          }
-        }
-      }
-      if (!found_kv_garbage) {
-        //printf("DEBUG [KvServer]: All bytes after start_offset+16 are zero (as expected)\n");
-      }
-
       auto cmd = raft::CommandData{start_offset, raft::Slice(data, size)};
       
       auto pr = raft_->Propose(cmd);
@@ -127,7 +109,7 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
       raft::util::Timer timer;
       timer.Reset();
       KvRequestApplyResult ar;
-      while (timer.ElapseMilliseconds() <= 300) {
+      while (timer.ElapseMilliseconds() <= 5000) {
         // Check if applied
         if (CheckEntryCommitted(pr, &ar)) {
           resp->err = ar.err;
@@ -702,7 +684,7 @@ void KvServer::DoValueGatheringTask(ValueGatheringTask *task, ValueGatheringTask
         raft::Slice results;
         
         // Attempt decode with the fixed k/m parameters
-        auto stat = encoder.DecodeSlice(*(task->decode_input), task->k, 15, &results);
+        auto stat = encoder.DecodeSlice(*(task->decode_input), task->k, 45, &results);
         
         if (stat) {
           // DEBUG: Show raw decoded buffer

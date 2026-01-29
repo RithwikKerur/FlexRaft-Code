@@ -1,5 +1,6 @@
 #pragma once
 #include <string>
+#include <vector>
 namespace kv {
 class StorageEngine {
  public:

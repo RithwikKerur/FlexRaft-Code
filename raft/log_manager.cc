@@ -11,8 +11,15 @@
 namespace raft {
 // A default deleter that release dynamically allocated memory
 void default_Deleter(LogEntry *entry) {
+  // Delete the not-encoded slice data
   delete[] entry->NotEncodedSlice().data();
-  delete[] entry->FragmentSlice().data();
+
+  // Delete each fragment slice's data in the vector
+  const auto& fragments = entry->FragmentSlice();
+  for (const auto& slice : fragments) {
+    delete[] slice.data();
+  }
+
   entry->~LogEntry();
 }
 

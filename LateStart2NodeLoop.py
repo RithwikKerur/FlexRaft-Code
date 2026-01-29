@@ -6,167 +6,227 @@ import shutil
 import signal
 
 # --- Configuration ---
-WRITE_COUNTS = [1000, 2000, 4000, 8000]  # The specific tests to run
-LATE_NODE_A = 3
-LATE_NODE_B = 4
+NUM_NODES = 11          
+WRITE_COUNTS = [4000]  
+LATE_NODE_A = NUM_NODES - 2
+LATE_NODE_B = NUM_NODES - 1 
 DELAY_SECONDS = 2
-BASE_DIR = "/Users/rithwikkerur/Documents/UCSB/data"
+BASE_DIR = "./experiments"
 CONF_FILE = "example.conf"
 BUILD_DIR = "build/bench"
 SERVER_BIN = os.path.join(BUILD_DIR, "bench_server")
 CLIENT_BIN = os.path.join(BUILD_DIR, "bench_client")
 TEST_STORAGE_BIN = os.path.join(BUILD_DIR, "testStorage")
+debug = True
 
-# Track running processes to kill them later
-running_procs = []
+# --- Globals for Tracking ---
+running_procs = [] # For blind kill on Ctrl+C
 open_files = []
+active_servers = [] # Metadata to map PIDs to IDs
+
+def get_exit_message(code):
+    """Converts a return code into a human-readable system message."""
+    if code == 0:
+        return "Success (0)"
+    
+    # Negative values indicate termination by signal
+    if code < 0:
+        try:
+            sig_name = signal.Signals(-code).name
+            return f"{sig_name} ({code})"
+        except ValueError:
+            return f"Signal {code}"
+            
+    return f"Error Code ({code})"
 
 def cleanup(signum=None, frame=None):
-    """Kills all tracked subprocesses."""
-    print("\nStopping all background processes...")
-    for proc in running_procs:
-        if proc.poll() is None:  # If process is still running
+    """Kills processes and prints a clean exit code table."""
+    print("\n" + "="*50)
+    print("STOPPING SERVERS & CHECKING EXIT CODES")
+    print("="*50)
+
+    # 1. Terminate all tracked servers
+    for server in active_servers:
+        proc = server['proc']
+        if proc.poll() is None:
             try:
                 proc.terminate()
-                proc.wait(timeout=1)
+                # Give it a moment to shut down gracefully so we get a code
+                proc.wait(timeout=1) 
             except subprocess.TimeoutExpired:
                 proc.kill()
+                proc.wait()
+
+    # 2. Kill any other background processes (like the client)
+    for proc in running_procs:
+        if proc.poll() is None:
+            proc.kill()
+
+    # 3. Print the Summary Table
+    print(f"{'Node ID':<10} | {'PID':<8} | {'Status Message'}")
+    print("-" * 50)
     
+    for server in active_servers:
+        node_id = server['id']
+        proc = server['proc']
+        code = proc.returncode
+        msg = get_exit_message(code)
+        
+        print(f"{node_id:<10} | {proc.pid:<8} | {msg}")
+
+    # 4. Clean up file handles
     for f in open_files:
         if not f.closed:
             f.close()
     
+    # Reset tracking lists
     running_procs.clear()
+    active_servers.clear()
     open_files.clear()
-    print("All processes stopped.")
+    print("\nCleanup complete.")
     
     if signum is not None:
         sys.exit(1)
 
 signal.signal(signal.SIGINT, cleanup)
 
-def clean_old_data():
-    """Removes old raft logs (files) and database (directories)."""
-    print("Cleaning up old databases and logs...")
-    for i in range(5):
-        # DB Cleanup
-        db_path = os.path.join(BASE_DIR, f"testdb{i}")
-        if os.path.exists(db_path):
-            if os.path.isdir(db_path):
-                shutil.rmtree(db_path)
-            else:
-                os.remove(db_path)
+def force_kill_all():
+    print("Pre-flight check: Killing lingering instances...")
+    subprocess.call(["pkill", "-9", "-f", "bench_server"], stderr=subprocess.DEVNULL)
+    subprocess.call(["pkill", "-9", "-f", "bench_client"], stderr=subprocess.DEVNULL)
+    subprocess.call(["pkill", "-9", "gdb"], stderr=subprocess.DEVNULL)  # Kill GDB wrappers
+    time.sleep(2)  # Give kernel time to release sockets from TIME_WAIT
 
-        # Log Cleanup
-        log_path = f"raft_log{i}"
-        candidates = [log_path, os.path.join(BASE_DIR, log_path)]
-        for p in candidates:
-            if os.path.exists(p):
-                if os.path.isfile(p):
-                    os.remove(p)
-                else:
-                    shutil.rmtree(p)
-    
-    if os.path.exists("client_run.log"):
-        os.remove("client_run.log")
+def generate_config(num_nodes):
+    print(f"Generating {CONF_FILE} for {num_nodes} nodes...")
+    if not os.path.exists(BASE_DIR):
+        os.makedirs(BASE_DIR)
+    with open(CONF_FILE, "w") as f:
+        for i in range(num_nodes):
+            raft_port = 50001 + (i * 2)
+            service_port = 50002 + (i * 2)
+            log_path = os.path.join(BASE_DIR, f"raft_log{i}")
+            db_path = os.path.join(BASE_DIR, f"testdb{i}")
+            line = f"{i} 127.0.0.1:{raft_port} 127.0.0.1:{service_port} {log_path} {db_path}\n"
+            f.write(line)
+
+def clean_old_data():
+    print("Cleaning up old databases and logs...")
+    subprocess.call(f"rm -rf {BASE_DIR}/* raft_log*", shell=True)
+    if os.path.exists("client_run.log"): os.remove("client_run.log")
 
 def wait_for_client_init(client_proc):
-    """Polls log until client is ready."""
-    print("Building Bench... Waiting for client to be ready...")
+    print("Waiting for client init...")
     while True:
         if os.path.exists("client_run.log"):
             with open("client_run.log", "r", errors='ignore') as f:
                 if "[Execution Process]" in f.read():
-                    print(">>> Client Ready! ([Execution Process] detected)")
+                    print(">>> Client Ready!")
                     return
-
         if client_proc.poll() is not None:
-            print("Error: Client process died unexpectedly!")
+            print("Error: Client died unexpectedly.")
             cleanup()
             sys.exit(1)
         time.sleep(0.1)
 
+def start_server_debug(node_id):
+    """Starts a server wrapped in GDB to catch segfaults."""
+    log_filename = f"raft_log{node_id}"
+    log_file = open(log_filename, "w")
+    open_files.append(log_file)
+    
+    # --- GDB WRAPPER COMMAND ---
+    cmd = [
+        "gdb", "--batch",              # Run in batch mode (no interactive shell)
+        "-ex", "run",                  # Start the program immediately
+        "-ex", "set style enabled on", # (Optional) Keep colors in logs if supported
+        "-ex", "echo \n*** CRASH DETECTED - BACKTRACE: ***\n",
+        "-ex", "thread apply all bt",  # Print backtrace for ALL threads (crucial for C++)
+        "--args",                      # All arguments after this belong to the binary
+        SERVER_BIN, 
+        f"--conf={CONF_FILE}", 
+        f"--id={node_id}"
+    ]
+    
+    # Launch GDB instead of the server directly
+    proc = subprocess.Popen(
+        cmd,
+        stdout=log_file, stderr=subprocess.STDOUT
+    )
+    
+    running_procs.append(proc)
+    active_servers.append({'id': node_id, 'proc': proc})
+    print(f"Started Server {node_id} (GDB PID: {proc.pid})")
+
+def start_server(node_id):
+    """Starts a server and records its metadata."""
+    log_file = open(f"raft_log{node_id}", "w")
+    open_files.append(log_file)
+    
+    proc = subprocess.Popen(
+        [SERVER_BIN, f"--conf={CONF_FILE}", f"--id={node_id}"],
+        stdout=log_file, stderr=subprocess.STDOUT
+    )
+    
+    running_procs.append(proc)
+    active_servers.append({'id': node_id, 'proc': proc})
+    print(f"Started Server {node_id} (PID: {proc.pid})")
+
 def main():
-    # --- 1. Build Project ---
-    print("Building project...")
-    ret = subprocess.call("CMAKE=cmake make build", shell=True)
-    if ret != 0:
-        print("Build failed! Exiting.")
-        sys.exit(1)
+    force_kill_all()
+    generate_config(NUM_NODES)
+    
+    # Build check (optional)
+    if subprocess.call("CMAKE=cmake make build", shell=True) != 0: sys.exit(1)
 
-    # --- 2. Main Loop over Write Counts ---
     for count in WRITE_COUNTS:
-        print(f"\n{'='*56}")
-        print(f"STARTING RUN: Write Count = {count} entries")
-        print(f"{'='*56}")
-
+        print(f"\n--- STARTING RUN: {count} writes ---")
         clean_old_data()
 
-        # --- Start Initial Servers (Skip Late Nodes) ---
-        print(f"Starting 3 initial servers...")
-        for i in range(5):
-            if i == LATE_NODE_A or i == LATE_NODE_B:
+        # Start Initial
+        for i in range(NUM_NODES):
+            if i == LATE_NODE_A or i == LATE_NODE_B: 
                 continue
-            
-            log_file = open(f"raft_log{i}", "w")
-            open_files.append(log_file)
-            proc = subprocess.Popen(
-                [SERVER_BIN, f"--conf={CONF_FILE}", f"--id={i}"],
-                stdout=log_file, stderr=subprocess.STDOUT
-            )
-            running_procs.append(proc)
-            print(f"Started Server {i} (PID: {proc.pid})")
+            if debug:
+                start_server_debug(i)
+            else:
+                start_server(i)
 
-        print("Waiting 2 seconds for cluster to stabilize...")
-        time.sleep(2)
+        time.sleep(5)
 
-        # --- Start Client (With specific write_num) ---
-        print(f"Starting Client to write {count} entries...")
+        # Start Client
         client_log = open("client_run.log", "w")
         open_files.append(client_log)
-        
         client_proc = subprocess.Popen(
             [CLIENT_BIN, f"--conf={CONF_FILE}", "--id=0", "--size=4k", f"--write_num={count}"],
             stdout=client_log, stderr=subprocess.STDOUT
         )
         running_procs.append(client_proc)
-        
         wait_for_client_init(client_proc)
 
-        # --- Delay before Late Servers ---
-        # Note: If count is very small, client might finish during this sleep.
-        # That is okay; we check if client is alive later.
-        print(f"Client running... waiting {DELAY_SECONDS} seconds to start late servers...")
         time.sleep(DELAY_SECONDS)
 
-        # --- Start Late Servers ---
+        # Start Late
         for node_id in [LATE_NODE_A, LATE_NODE_B]:
-            print(f"Starting Late Server {node_id}...")
-            log_file = open(f"raft_log{node_id}", "w")
-            open_files.append(log_file)
-            proc = subprocess.Popen(
-                [SERVER_BIN, f"--conf={CONF_FILE}", f"--id={node_id}"],
-                stdout=log_file, stderr=subprocess.STDOUT
-            )
-            running_procs.append(proc)
-            print(f"Started Server {node_id} (PID: {proc.pid})")
+            if(debug):
+                start_server_debug(node_id)
+            else:
+                start_server(node_id)
 
-        # --- WAIT for Client to Finish ---
-        print(f"Waiting for client to finish writing {count} entries...")
-        exit_code = client_proc.wait() # This blocks until client exits
-        print(f"Client finished with exit code {exit_code}")
+        # Wait for Client
+        client_proc.wait()
+        
+        print("Waiting 25s for replication...")
+        time.sleep(25)
 
-        # --- Kill Servers ---
+        # Stop Servers and Print Exit Codes
         cleanup()
 
-        # --- Run Storage Test ---
-        print(f">>> Running Storage Test (Post-{count} entries)...", file=sys.stderr)
-        subprocess.call([TEST_STORAGE_BIN], stdout=sys.stderr, stderr=sys.stderr)
-        print(">>> Storage Test Finished.", file=sys.stderr)
+        # Test Storage
+        print(">>> Running Storage Test...")
+        subprocess.call([TEST_STORAGE_BIN, str(NUM_NODES)], stdout=sys.stderr)
 
-        time.sleep(45)
-
-    print("All benchmark runs completed.")
+        time.sleep(5)
 
 if __name__ == "__main__":
     main()

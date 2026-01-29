@@ -405,10 +405,6 @@ class RaftState {
   // been changed.
   void MaybeReEncodingAndReplicate();
 
-  void UpdateLastEncodingK(raft_index_t raft_index, raft_encoding_param_t k) {
-    last_encoding_.insert_or_assign(raft_index, k);
-  }
-
   auto GetLastEncodingK(raft_index_t raft_index) -> raft_encoding_param_t {
     // Returns 0 means this entry has not been encoded yet
     // There are two cases for a given raft index and its associated k
@@ -538,5 +534,7 @@ class RaftState {
   // Some report information about preleader phase
   util::TimePoint preleader_timepoint_;
   uint64_t preleader_recover_ent_cnt_ = 0;
+
+  std::recursive_mutex mutex_;
 };
 }  // namespace raft

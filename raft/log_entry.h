@@ -75,7 +75,10 @@ class LogEntry {
   auto StartOffset() const -> int { return start_fragment_offset; }
   void SetStartOffset(int off) { start_fragment_offset = off; }
 
-  auto CommandData() const -> Slice { return Type() == kNormal ? command_data_ : Slice(); }
+  auto CommandData() const -> const Slice& {
+    static const Slice empty_slice;
+    return Type() == kNormal ? command_data_ : empty_slice;
+  }
   auto CommandLength() const -> int { return command_size_; }
   void SetCommandLength(int size) { command_size_ = size; }
 
@@ -84,12 +87,15 @@ class LogEntry {
     command_size_ = slice.size();
   }
 
-  auto NotEncodedSlice() const -> Slice {
+  auto NotEncodedSlice() const -> const Slice& {
     return Type() == kNormal ? CommandData() : not_encoded_slice_;
   }
   void SetNotEncodedSlice(const Slice &slice) { not_encoded_slice_ = slice; }
 
-  auto FragmentSlice() const -> std::vector<Slice> { return Type() == kNormal ? std::vector<Slice>() : fragment_slices; }
+  auto FragmentSlice() const -> const std::vector<Slice>& {
+    static const std::vector<Slice> empty_vec;
+    return Type() == kNormal ? empty_vec : fragment_slices;
+  }
   void SetFragmentSlice(const std::vector<Slice> &slice) { fragment_slices = slice; }
 
   auto GetFragmentsSize() const -> size_t {
