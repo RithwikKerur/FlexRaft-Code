@@ -18,10 +18,13 @@ auto GenerateRandomSlice(int min_len, int max_len) -> Slice {
   for (decltype(rand_size) i = 0; i < rand_size; ++i) {
     rand_data[i] = rand();
   }
-  return Slice(rand_data, rand_size);
+  return Slice(rand_data, rand_size, true);
 }
 
-void DestructSlice(const Slice& slice) { delete[] slice.data(); }
+void DestructSlice(const Slice& slice) {
+  // Memory is now automatically managed by shared_ptr in the Slice class
+  // No manual cleanup needed
+}
 
 auto GenerateRandomLogEntry(int min_len, int max_len) -> LogEntry {
   LogEntry ent;

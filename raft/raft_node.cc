@@ -68,7 +68,9 @@ void RaftNode::Exit() {
   // First ensures ticker thread and applier thread exits, in case they access
   // raft_state field after we release it
   this->exit_.store(true);
-  std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  // Wait at least 2x the tick interval to ensure the ticker thread has time to
+  // wake up, check the exit flag, and terminate before we delete resources
+  std::this_thread::sleep_for(std::chrono::milliseconds(config::kRaftTickBaseInterval * 3));
 
   // TODO: Release storage or state machine if it's necessary
   rcf_server_->Stop();  // Stop running rcf server
@@ -107,6 +109,10 @@ void RaftNode::Disconnect() {
 }
 
 void RaftNode::Reconnect() {
+  // Stop first in case it's already running, then restart
+  rcf_server_->Stop();
+  // Wait for the OS to release the port before restarting
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
   rcf_server_->Start();
   for (auto [_, client_ptr] : rcf_clients_) {
     client_ptr->recover();

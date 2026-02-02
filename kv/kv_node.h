@@ -1,4 +1,6 @@
 #pragma once
+#include <chrono>
+#include <thread>
 #include "config.h"
 #include "kv_server.h"
 #include "raft_type.h"
@@ -29,6 +31,10 @@ class KvServiceNode {
   void Reconnect() {
     LOG(raft::util::kRaft, "S%d Reconnect", id_);
     kv_server_->Reconnect();
+    // Stop first in case it's already running, then restart
+    rpc_server_->Stop();
+    // Wait for the OS to release the port before restarting
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
     rpc_server_->Start();
   }
 

@@ -101,15 +101,23 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
       raft::util::Timer commit_timer;
       commit_timer.Reset();
       LOG(raft::util::kRaft, "Command Data size: %d", size);
-      auto cmd = raft::CommandData{start_offset, raft::Slice(data, size)};
+      auto cmd = raft::CommandData{start_offset, raft::Slice(data, size, true)};
       
       auto pr = raft_->Propose(cmd);
 
       // Loop until the propose entry to be applied
+      // NOTE: Timeout must be shorter than client RPC timeout (6000ms) to avoid
+      // use-after-free when RCF session is closed before we return
       raft::util::Timer timer;
       timer.Reset();
       KvRequestApplyResult ar;
       while (timer.ElapseMilliseconds() <= 5000) {
+        // Check for disconnection periodically to avoid use-after-free
+        if (IsDisconnected()) {
+          LOG(raft::util::kRaft, "RCF Disconnected");
+          resp->err = kRequestExecTimeout;
+          return;
+        }
         // Check if applied
         if (CheckEntryCommitted(pr, &ar)) {
           resp->err = ar.err;
@@ -121,6 +129,8 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
           LOG(raft::util::kRaft, "S%d ApplyResult value=%s", id_, resp->value.c_str());
           return;
         }
+        // Yield to reduce CPU contention and allow other threads to progress
+        std::this_thread::yield();
       }
       // Otherwise timesout
       resp->err = kRequestExecTimeout;
@@ -388,6 +398,11 @@ void KvServer::ExecuteGetOperation(const Request *request, Response *resp) {
       resp->err = kRequestExecTimeout;
       return;
     }
+    // Check for disconnection to avoid use-after-free
+    if (IsDisconnected()) {
+      resp->err = kRequestExecTimeout;
+      return;
+    }
     LOG(raft::util::kRaft, "S%d Execute Get Operation(ApplyIndex:%d) ReadIndex%d", id_,
         LastApplyIndex(), read_index);
 
@@ -565,9 +580,9 @@ void KvServer::DoValueGatheringTask(ValueGatheringTask *task, ValueGatheringTask
   };
 
   auto clear_gather_ctx = [=]() {
-    for (auto &[_, frag] : *(task->decode_input)) {
-      delete[] frag.data();
-    }
+    // Memory for slices is now automatically managed by shared_ptr in the Slice class
+    // No need to manually delete slice data anymore
+    task->decode_input->clear();
   };
 
   auto get_req = GetValueRequest{task->key, task->read_index};
@@ -669,7 +684,7 @@ void KvServer::DoValueGatheringTask(ValueGatheringTask *task, ValueGatheringTask
             std::memcpy(persistent_data, ptr + current_offset, slice_len);
 
             // Create Slice from the persistent buffer
-            task->decode_input->insert({frag_id, raft::Slice(persistent_data, slice_len)});        
+            task->decode_input->insert({frag_id, raft::Slice(persistent_data, slice_len, true)});        
             LOG(raft::util::kRaft, "[S%d] Add Fragment%d in ValueGatheringTask with size %d", Id(), frag_id, slice_len);
         }
 
@@ -739,9 +754,9 @@ void KvServer::DoValueGatheringTask(ValueGatheringTask *task, ValueGatheringTask
 
   // Helper to clean up memory
   auto clear_gather_ctx = [=]() {
-    for (auto &[_, frag] : *(task->decode_input)) {
-      delete[] frag.data();
-    }
+    // Memory for slices is now automatically managed by shared_ptr in the Slice class
+    // No need to manually delete slice data anymore
+    task->decode_input->clear();
   };
 
   // --------------------------------------------------------------------------

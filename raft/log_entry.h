@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <string>
 #include <vector>
+#include <memory>
 #include "SF/Archive.hpp"
 #include "raft_type.h"
 
@@ -18,13 +19,26 @@ class Slice {
   static Slice Copy(const Slice &slice) {
     auto data = new char[slice.size()];
     std::memcpy(data, slice.data(), slice.size());
-    return Slice(data, slice.size());
+    return Slice(data, slice.size(), true);
   }
 
  public:
-  Slice(char *data, size_t size) : data_(data), size_(size) {}
-  Slice(const std::string &s) : data_(new char[s.size()]), size_(s.size()) {
-    std::memcpy(data_, s.c_str(), size_);
+  // Non-owning constructor (view into existing memory)
+  Slice(char *data, size_t size) : data_(data), size_(size), owned_data_(nullptr) {}
+
+  // Owning constructor (takes ownership of memory)
+  Slice(char *data, size_t size, bool owns) : data_(data), size_(size) {
+    if (owns && data != nullptr) {
+      owned_data_ = std::shared_ptr<char[]>(data);
+    }
+  }
+
+  // String constructor (creates owned copy)
+  Slice(const std::string &s) : size_(s.size()) {
+    auto data = new char[s.size()];
+    std::memcpy(data, s.c_str(), size_);
+    data_ = data;
+    owned_data_ = std::shared_ptr<char[]>(data);
   }
 
   Slice() = default;
@@ -37,7 +51,7 @@ class Slice {
   auto toString() const -> std::string { return std::string(data_, size_); }
 
   // Require both slice are valid
-  auto compare(const Slice &slice) -> int {
+  auto compare(const Slice &slice) const -> int {
     assert(valid() && slice.valid());
     auto cmp_len = std::min(size(), slice.size());
     auto cmp_res = std::memcmp(data(), slice.data(), cmp_len);
@@ -50,6 +64,7 @@ class Slice {
  private:
   char *data_ = nullptr;
   size_t size_ = 0;
+  std::shared_ptr<char[]> owned_data_;  // Manages owned memory with reference counting
 };
 
 class Stripe;
@@ -100,7 +115,7 @@ class LogEntry {
 
   auto GetFragmentsSize() const -> size_t {
     size_t total_size = 0;
-    for(const Slice s: fragment_slices){
+    for(const Slice& s: fragment_slices){
       total_size+= s.size();
     }
     return total_size;

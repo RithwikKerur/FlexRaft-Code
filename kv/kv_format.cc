@@ -80,7 +80,7 @@ void RaftEntryToRequest(const raft::LogEntry &ent, Request *request, raft::raft_
 
 
     // Append the value contents
-    auto fragment_slices = ent.FragmentSlice();
+    const auto& fragment_slices = ent.FragmentSlice();
     std::printf("Fragments %d\n", fragment_slices.size());
 
     for (const auto& slice : fragment_slices) {

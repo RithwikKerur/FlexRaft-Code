@@ -1015,8 +1015,11 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
   }*/
   Encoder::EncodingResults results;
   auto data_to_encode = ent->CommandData().data() + ent->StartOffset();
-  auto datasize_to_encode = ent->CommandData().size() - ent->StartOffset();                  
-  Slice encode_slice = Slice(data_to_encode, datasize_to_encode);
+  auto datasize_to_encode = ent->CommandData().size() - ent->StartOffset();
+  // Create owned copy to prevent dangling pointer when ent goes out of scope
+  auto data_copy = new char[datasize_to_encode];
+  std::memcpy(data_copy, data_to_encode, datasize_to_encode);
+  Slice encode_slice = Slice(data_copy, datasize_to_encode, true);
   encoder_.EncodeSlice(encode_slice, k, m, &results);
   
   for (int i = 0; i < GetClusterServerNumber(); i++){
@@ -1028,7 +1031,12 @@ void RaftState::EncodeRaftEntry(raft_index_t raft_index, raft_encoding_param_t k
     encoded_ent.SetStartOffset(ent->StartOffset());
 
     encoded_ent.SetCommandLength(ent->CommandLength());
-    encoded_ent.SetNotEncodedSlice(Slice(ent->CommandData().data(), ent->StartOffset()));
+    // Create owned copy to prevent dangling pointer when ent goes out of scope
+    if (ent->StartOffset() > 0) {
+      auto not_encoded_copy = new char[ent->StartOffset()];
+      std::memcpy(not_encoded_copy, ent->CommandData().data(), ent->StartOffset());
+      encoded_ent.SetNotEncodedSlice(Slice(not_encoded_copy, ent->StartOffset(), true));
+    }
     std::vector<Slice> slices;
     for (int j = 0; j < k; j++){
       slices.push_back(results.at(i*k + j));
@@ -1145,7 +1153,7 @@ bool RaftState::DecodingRaftEntry(Stripe *stripe, LogEntry *ent) {
   ent->SetIndex(stripe->raft_index);
   ent->SetTerm(stripe->raft_term);
   ent->SetType(kNormal);
-  ent->SetCommandData(Slice(data, origin_size));
+  ent->SetCommandData(Slice(data, origin_size, true));
   ent->SetStartOffset(not_encoded_size);
   ent->SetChunkInfo(ChunkInfo{0, ent->Index()});
   LOG(util::kRaft, "S%d Decode Results: Ent(%s)", id_, ent->ToString().c_str());
@@ -1456,6 +1464,11 @@ void RaftState::sendAppendEntries(raft_node_id_t peer) {
   }
 
   for (auto raft_index = next_index; raft_index <= lm_->LastLogEntryIndex(); ++raft_index) {
+    // Check if encoded stripe exists for this index before accessing
+    if (encoded_stripe_.count(raft_index) == 0 || encoded_stripe_[raft_index] == nullptr) {
+      LOG(util::kRaft, "S%d Missing encoded_stripe for I%d, skipping remaining entries", id_, raft_index);
+      break;
+    }
     args.entries.push_back(encoded_stripe_[raft_index]->fragments[peer]);
   }
   LOG(util::kRaft, "S%d AE To S%d (I%d->I%d) at T%d", id_, peer, next_index,

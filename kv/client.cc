@@ -195,9 +195,9 @@ void KvServiceClient::DoGatherValueTask(const GatherValueTask *task, GatherValue
   };
 
   auto clear_gather_ctx = [=]() {
-    for (auto &[_, frag] : *(task->decode_input)) {
-      delete[] frag.data();
-    }
+    // Memory for slices is now automatically managed by shared_ptr in the Slice class
+    // No need to manually delete slice data anymore
+    task->decode_input->clear();
   };
 
   // issues parallel GetValue RPC to all nodes and decode the value when

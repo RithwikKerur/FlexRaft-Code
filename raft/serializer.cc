@@ -395,7 +395,7 @@ const char *Serializer::ParsePrefixLengthSlice(const char *buf, Slice *slice) {
   char *data = new char[size];
   buf += sizeof(int);
   std::memcpy(data, buf, size);
-  *slice = Slice(data, size);
+  *slice = Slice(data, size, true);
   return buf + size;
 }
 
@@ -433,7 +433,7 @@ const char *Serializer::ParsePrefixLengthSlices(const char *buf, std::vector<Sli
     // Create slice from data
     char *data = new char[slice_size];
     std::memcpy(data, buf, slice_size);
-    slices->emplace_back(data, slice_size);
+    slices->emplace_back(data, slice_size, true);
     buf += slice_size;
   }
 
@@ -451,7 +451,7 @@ const char *Serializer::ParsePrefixLengthSliceWithBound(const char *buf, size_t 
   char *data = new char[size];
   buf += sizeof(int);
   std::memcpy(data, buf, size);
-  *slice = Slice(data, size);
+  *slice = Slice(data, size, true);
   return buf + size;
 }
 

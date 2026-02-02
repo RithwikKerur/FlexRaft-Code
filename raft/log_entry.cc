@@ -61,7 +61,8 @@ auto operator==(const LogEntry &lhs, const LogEntry &rhs) -> bool {
     return false;
   }
 
-  auto lhs_cmd_data = lhs.CommandData(), rhs_cmd_data = rhs.CommandData();
+  const auto& lhs_cmd_data = lhs.CommandData();
+  const auto& rhs_cmd_data = rhs.CommandData();
   auto cmd_data_equal = !lhs_cmd_data.valid() && !rhs_cmd_data.valid();
   if (lhs_cmd_data.valid() && rhs_cmd_data.valid()) {
     cmd_data_equal = lhs_cmd_data.compare(rhs_cmd_data) == 0;
@@ -71,7 +72,8 @@ auto operator==(const LogEntry &lhs, const LogEntry &rhs) -> bool {
     return false;
   }
 
-  auto lhs_full_data = lhs.NotEncodedSlice(), rhs_full_data = rhs.NotEncodedSlice();
+  const auto& lhs_full_data = lhs.NotEncodedSlice();
+  const auto& rhs_full_data = rhs.NotEncodedSlice();
   auto full_data_equal = !lhs_full_data.valid() && !rhs_full_data.valid();
   if (lhs_full_data.valid() && rhs_full_data.valid()) {
     full_data_equal = lhs_full_data.compare(rhs_full_data) == 0;
@@ -80,7 +82,8 @@ auto operator==(const LogEntry &lhs, const LogEntry &rhs) -> bool {
     return false;
   }
 
-  auto lhs_frag_data = lhs.FragmentSlice(), rhs_frag_data = rhs.FragmentSlice();
+  const auto& lhs_frag_data = lhs.FragmentSlice();
+  const auto& rhs_frag_data = rhs.FragmentSlice();
   auto frag_equal = lhs_frag_data.empty() && rhs_frag_data.empty();
   if (!lhs_frag_data.empty() && !rhs_frag_data.empty()) {
     // Compare vector sizes first

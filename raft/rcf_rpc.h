@@ -157,6 +157,7 @@ class RCFRpcServer final : public RpcServer {
   RCF::RcfInit rcf_init_;
   RCF::RcfServer server_;
   RaftRPCService service_;
+  NetAddress address_;  // Store for debugging
 };
 }  // namespace rpc
 }  // namespace raft

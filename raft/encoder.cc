@@ -1,5 +1,7 @@
 #include "encoder.h"
 
+#include <cstring>
+
 #include "isa-l/erasure_code.h"
 #include "raft_type.h"
 
@@ -10,9 +12,8 @@ bool Encoder::EncodeSlice(const Slice &slice, int k, int m, EncodingResults *res
   assert(k != 0);
   auto encoding_size = slice.size();
 
-  // NOTE: What if encoding_size is not divisible to k?
   auto fragment_size = (encoding_size + k - 1) / k;
-  auto start_ptr = reinterpret_cast<unsigned char *>(slice.data());
+  auto padded_size = fragment_size * k;
 
   // A special case for k = 1, avoiding allocating new memories
   // i.e. The resultant slice is exactly the same as input slice
@@ -21,6 +22,18 @@ bool Encoder::EncodeSlice(const Slice &slice, int k, int m, EncodingResults *res
       results->insert({i, slice});
     }
     return true;
+  }
+
+  // Create a padded buffer when encoding_size is not evenly divisible by k.
+  // This prevents reading past the end of the original buffer.
+  unsigned char *padded_data = nullptr;
+  unsigned char *start_ptr;
+  if (padded_size > encoding_size) {
+    padded_data = new unsigned char[padded_size]();  // zero-initialized
+    std::memcpy(padded_data, slice.data(), encoding_size);
+    start_ptr = padded_data;
+  } else {
+    start_ptr = reinterpret_cast<unsigned char *>(slice.data());
   }
 
   // set input vector
@@ -58,6 +71,7 @@ bool Encoder::EncodeSlice(const Slice &slice, int k, int m, EncodingResults *res
     delete[] encode_output_[i];
   }
   delete[] g_tbls;
+  delete[] padded_data;  // safe even if nullptr
 
   return true;
 }
@@ -172,7 +186,7 @@ bool Encoder::DecodeSlice(const EncodingResults &fragments, int k, int m, Slice 
     delete[] data;
     return false;
   }
-  *results = Slice(data, decode_size);
+  *results = Slice(data, decode_size, true);
   return true;
 }
 

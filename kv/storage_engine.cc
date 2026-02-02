@@ -50,7 +50,7 @@ class RocksDBEngine final : public StorageEngine {
 
   void GetAllKeys(std::vector<std::string> *keys) override {
     keys->clear();
-    
+
     rocksdb::ReadOptions options;
     options.fill_cache = false; // Don't pollute cache with a full scan
 

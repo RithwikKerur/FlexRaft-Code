@@ -9,6 +9,7 @@
 #include "RCF/ByteBuffer.hpp"
 #include "RCF/ClientStub.hpp"
 #include "RCF/Endpoint.hpp"
+#include "RCF/Exception.hpp"
 #include "RCF/Future.hpp"
 #include "RCF/RCF.hpp"
 #include "RCF/TcpEndpoint.hpp"
@@ -249,12 +250,24 @@ void RCFRpcClient::onRequestFragmentsComplete(RCF::Future<RCF::ByteBuffer> ret,
 }
 
 RCFRpcServer::RCFRpcServer(const NetAddress &my_address)
-    : rcf_init_(), server_(RCF::TcpEndpoint(my_address.ip, my_address.port)), service_() {}
+    : rcf_init_(), server_(RCF::TcpEndpoint(my_address.ip, my_address.port)), service_(),
+      address_(my_address) {}
 
 void RCFRpcServer::Start() {
+  printf("[DEBUG] RaftRPC: Attempting to bind to %s:%d\n", address_.ip.c_str(), address_.port);
+  fflush(stdout);
   server_.getServerTransport().setMaxIncomingMessageLength(config::kMaxMessageLength);
   server_.bind<I_RaftRPCService>(service_);
-  server_.start();
+  try {
+    server_.start();
+    printf("[DEBUG] RaftRPC: Successfully started on port %d\n", address_.port);
+    fflush(stdout);
+  } catch (const RCF::Exception& e) {
+    printf("[ERROR] RaftRPC: Failed to start on port %d: %s\n",
+           address_.port, e.getErrorMessage().c_str());
+    fflush(stdout);
+    throw;
+  }
 }
 
 void RCFRpcServer::Stop() {
