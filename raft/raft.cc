@@ -1001,6 +1001,10 @@ void RaftState::ReplicateNewProposeEntry(raft_index_t raft_index) {
   // Makes sure there are totally N chunks and each of these chunks is mapped to
   // a certain follower
   raft_encoding_param_t encode_k = live_servers - livenessLevel();
+  // Ensure encode_k is at least 1 to avoid encoder assertion failure
+  if (encode_k < 1) {
+    encode_k = 1;
+  }
   raft_encoding_param_t encode_m = GetClusterServerNumber() - encode_k;
 
   LOG(util::kRaft, "S%d Estimates %d Alive Servers K:%d M:%d", id_, live_servers, encode_k,
@@ -1073,6 +1077,10 @@ void RaftState::MaybeReEncodingAndReplicate() {
 
   auto live_servers = live_monitor_.LiveNumber();
   raft_encoding_param_t encode_k = live_servers - livenessLevel();
+  // Ensure encode_k is at least 1 to avoid encoder assertion failure
+  if (encode_k < 1) {
+    encode_k = 1;
+  }
   raft_encoding_param_t encode_m = GetClusterServerNumber() - encode_k;
   LOG(util::kRaft, "S%d Estimate %d Server Alive K:%d M:%d", id_, live_servers, encode_k, encode_m);
 
@@ -1270,6 +1278,11 @@ void RaftState::sendAppendEntries(raft_node_id_t peer) {
   }
 
   for (auto raft_index = next_index; raft_index <= lm_->LastLogEntryIndex(); ++raft_index) {
+    // Check if encoded stripe exists for this index before accessing
+    if (encoded_stripe_.count(raft_index) == 0 || encoded_stripe_[raft_index] == nullptr) {
+      LOG(util::kRaft, "S%d Missing encoded_stripe for I%d, skipping remaining entries", id_, raft_index);
+      break;
+    }
     args.entries.push_back(encoded_stripe_[raft_index]->fragments[peer]);
   }
   LOG(util::kRaft, "S%d AE To S%d (I%d->I%d) at T%d", id_, peer, next_index,

@@ -1,7 +1,10 @@
 #pragma once
 #include <functional>
+#include <thread>
+#include <chrono>
 
 #include "RCF/ClientStub.hpp"
+#include "RCF/Exception.hpp"
 #include "RCF/Future.hpp"
 #include "RCF/InitDeinit.hpp"
 #include "RCF/RCF.hpp"
@@ -39,8 +42,15 @@ class KvServerRPCService {
     raft::util::Timer timer;
     timer.Reset();
     // Spin until the entries before read index have been applied into the DB
+    // NOTE: Added timeout to prevent infinite spin which can cause use-after-free
+    // when RCF session times out while we're still waiting
     while (server_->LastApplyIndex() < request.read_index) {
-      ;
+      if (timer.ElapseMilliseconds() >= 3000) {
+        LOG(raft::util::kRaft, "S%d GetValue timeout waiting for readIndex=%d", server_->Id(),
+            request.read_index);
+        return GetValueResponse{std::string(""), kRequestExecTimeout, server_->Id()};
+      }
+      std::this_thread::yield();
     }
     std::string value;
     auto found = server_->DB()->Get(request.key, &value);
@@ -67,15 +77,17 @@ class KvServerRPCClient {
  public:
   using ClientPtr = std::shared_ptr<RcfClient<I_KvServerRPCService>>;
   KvServerRPCClient(const NetAddress &net_addr, raft::raft_node_id_t id)
-      : address_(net_addr),
-        id_(id),
-        client_stub_(RCF::TcpEndpoint(net_addr.ip, net_addr.port)),
-        rcf_init_() {
-    client_stub_.getClientStub().getTransport().setMaxIncomingMessageLength(
-        raft::rpc::config::kMaxMessageLength);
-    client_stub_.getClientStub().getTransport().setMaxOutgoingMessageLength(
-        raft::rpc::config::kMaxMessageLength);
-  }
+    : address_(net_addr),
+      id_(id),
+      client_stub_(RCF::TcpEndpoint(net_addr.ip, net_addr.port)),
+      rcf_init_() {
+  client_stub_.getClientStub().getTransport().setMaxIncomingMessageLength(
+      raft::rpc::config::kMaxMessageLength);
+  client_stub_.getClientStub().getTransport().setMaxOutgoingMessageLength(
+      raft::rpc::config::kMaxMessageLength);
+  // ADD THIS: Set timeout slightly longer than server's 5000ms wait
+  client_stub_.getClientStub().setRemoteCallTimeoutMs(6000);
+}
 
   Response DealWithRequest(const Request &request);
 
@@ -111,9 +123,37 @@ class KvServerRPCServer {
   KvServerRPCServer() = default;
 
   void Start() {
+    printf("[DEBUG] S%d KvServerRPC: Attempting to bind to %s:%d\n",
+           id_, address_.ip.c_str(), address_.port);
+    fflush(stdout);
+
     server_.getServerTransport().setMaxIncomingMessageLength(raft::rpc::config::kMaxMessageLength);
     server_.bind<I_KvServerRPCService>(service_);
-    server_.start();
+
+    // Retry binding a few times in case of transient port conflicts
+    const int max_retries = 3;
+    for (int attempt = 1; attempt <= max_retries; ++attempt) {
+      try {
+        server_.start();
+        printf("[DEBUG] S%d KvServerRPC: Successfully started on port %d\n", id_, address_.port);
+        fflush(stdout);
+        return;  // Success
+      } catch (const RCF::Exception& e) {
+        printf("[ERROR] S%d KvServerRPC: Failed to start on port %d (attempt %d/%d): %s\n",
+               id_, address_.port, attempt, max_retries, e.getErrorMessage().c_str());
+        fflush(stdout);
+        if (attempt < max_retries) {
+          printf("[DEBUG] S%d Retrying in 2 seconds...\n", id_);
+          fflush(stdout);
+          std::this_thread::sleep_for(std::chrono::seconds(2));
+        } else {
+          printf("[FATAL] S%d KvServerRPC: Cannot bind to port %d after %d attempts. Exiting.\n",
+                 id_, address_.port, max_retries);
+          fflush(stdout);
+          std::exit(1);  // Exit cleanly instead of throwing uncaught exception
+        }
+      }
+    }
   }
 
   void Stop() {

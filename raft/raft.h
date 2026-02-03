@@ -63,7 +63,7 @@ struct ProposeResult {
 // A monitor that records the number of server that is still alive in current
 // cluster
 struct LivenessMonitor {
-  static constexpr int kMaxNodeNum = 10;
+  static constexpr int kMaxNodeNum = 12;
   int node_num;
   bool response[kMaxNodeNum];
   uint64_t response_time[kMaxNodeNum];

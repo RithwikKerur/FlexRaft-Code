@@ -109,7 +109,7 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
       raft::util::Timer timer;
       timer.Reset();
       KvRequestApplyResult ar;
-      while (timer.ElapseMilliseconds() <= 300) {
+      while (timer.ElapseMilliseconds() <= 3000) {
         // Check if applied
         if (CheckEntryCommitted(pr, &ar)) {
           resp->err = ar.err;
