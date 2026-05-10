@@ -71,6 +71,8 @@ set(
 find_path(ROCKSDB_INCLUDE_DIR
   NAMES db.h
   PATHS /opt/homebrew/include/rocksdb
+        /usr/include/rocksdb
+        /usr/local/include/rocksdb
 )
 if (NOT ROCKSDB_INCLUDE_DIR)
   message(FATAL_ERROR "rocksdb headers not found")
