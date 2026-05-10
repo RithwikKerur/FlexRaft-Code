@@ -6,6 +6,7 @@
 #include "leveldb/db.h"
 #include "leveldb/options.h"
 #include "rocksdb/db.h"
+#include "rocksdb/version.h"
 #include "util.h"
 
 namespace kv {
@@ -16,7 +17,13 @@ class RocksDBEngine final : public StorageEngine {
     rocksdb::Options options;
     options.create_if_missing = true;
 
+#if ROCKSDB_MAJOR >= 9
+    std::unique_ptr<rocksdb::DB> tmp;
+    auto stat = rocksdb::DB::Open(options, dbname, &tmp);
+    if (stat.ok()) dbptr_ = tmp.release();
+#else
     auto stat = rocksdb::DB::Open(options, dbname, &dbptr_);
+#endif
     if (!stat.ok()) {
       std::cout << stat.ToString() << std::endl;
     }
