@@ -11,7 +11,7 @@ CLIENT_NUMS   = [1]
 OP_COUNT      = 1000
 VALUE_SIZE    = "512"
 
-BASE_DIR      = "/Users/rithwikkerur/Documents/UCSB/data"
+BASE_DIR      = "/home/rkerur/FlexRaft-Code/data"
 CONF_FILE     = "example.conf"
 BUILD_DIR     = "build/bench"
 SERVER_BIN    = os.path.join(BUILD_DIR, "ycsb_server")
@@ -99,8 +99,8 @@ def main():
                 running_procs.append(proc)
                 print(f"  Started Server {i} (PID: {proc.pid})")
 
-            print("Waiting 5 seconds for cluster to stabilize...")
-            time.sleep(5)
+            print("Waiting 10 seconds for cluster to stabilize...")
+            time.sleep(10)
 
             print(f"Starting YCSB client (type={ycsb_type}, clients={client_num})...")
             client_log = open(CLIENT_LOG, "w")
