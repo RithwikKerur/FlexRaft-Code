@@ -16,7 +16,7 @@ void Logger::Debug(LogMsgType type, const char *fmt, ...) {
 
   va_list vaList;
   va_start(vaList, fmt);
-  vsprintf(buf, fmt, vaList);
+  vsnprintf(buf, sizeof(buf), fmt, vaList);
   va_end(vaList);
 
   std::string str(buf);

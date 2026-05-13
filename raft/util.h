@@ -64,7 +64,7 @@ class Logger {
 
  private:
   decltype(std::chrono::steady_clock::now()) startTimePoint_;
-  char buf[512]{};
+  char buf[4096]{};
 };
 
 struct PerfCounter {
