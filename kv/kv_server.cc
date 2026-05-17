@@ -111,7 +111,7 @@ void KvServer::DealWithRequest(const Request *request, Response *resp) {
       raft::util::Timer timer;
       timer.Reset();
       KvRequestApplyResult ar;
-      while (timer.ElapseMilliseconds() <= 5000) {
+      while (timer.ElapseMilliseconds() <= 15000) {
         // Check for disconnection periodically to avoid use-after-free
         if (IsDisconnected()) {
           LOG(raft::util::kRaft, "RCF Disconnected");

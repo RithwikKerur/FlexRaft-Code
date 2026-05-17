@@ -27,12 +27,12 @@ enum RaftRole {
 };
 
 namespace config {
-const int64_t kHeartbeatInterval = 100;         // 100ms
-const int64_t kCollectFragmentsInterval = 100;  // 100ms
+const int64_t kHeartbeatInterval = 300;          // 300ms
+const int64_t kCollectFragmentsInterval = 100;   // 100ms
 const int64_t kReplicateInterval = 1000;
-const int64_t kElectionTimeoutMin = 500;  // 500ms
+const int64_t kElectionTimeoutMin = 2000;  // 2000ms
 constexpr int kLivenessTimeoutInterval = 200;
-const int64_t kElectionTimeoutMax = 1000;  // 800ms
+const int64_t kElectionTimeoutMax = 4000;  // 4000ms
 };                                         // namespace config
 
 struct RaftConfig {
@@ -430,7 +430,13 @@ class RaftState {
     }
   }
 
-  int AliveServersOfLastPoint() const { return alive_servers_of_last_point_; }
+  int AliveServersOfLastPoint() const {
+    if (alive_servers_of_last_point_ < 0 ||
+        alive_servers_of_last_point_ > static_cast<int>(peers_.size()) + 1) {
+      return live_monitor_.LiveNumber();
+    }
+    return alive_servers_of_last_point_;
+  }
   void UpdateAliveServers(int num) { alive_servers_of_last_point_ = num; }
 
  public:

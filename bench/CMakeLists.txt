@@ -61,3 +61,6 @@ target_link_libraries(follower_recover_bench kv gflags)
 
 add_executable(testStorage testStorage.cc)
 target_link_libraries(testStorage raft rcf kv)
+
+add_executable(encoding_bench encoding_bench.cc)
+target_link_libraries(encoding_bench isal)

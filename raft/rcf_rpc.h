@@ -137,6 +137,7 @@ class RCFRpcClient final : public RpcClient {
   NetAddress target_address_;
   bool stopped_;
   raft_node_id_t id_;
+  ClientPtr persistent_client_;
 
   RPCStatsRecorder recorder_;
 };

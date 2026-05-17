@@ -68,9 +68,11 @@ AnalysisResults Analysis(const std::vector<OperationStat> &collected_data) {
     apply_latency_sum += stat.apply_latency;
     commit_latency_sum += stat.commit_latency;
   });
-  return AnalysisResults{op_latency_sum / collected_data.size(),
-                         commit_latency_sum / collected_data.size(),
-                         apply_latency_sum / collected_data.size()};
+  auto n = collected_data.size();
+  if (n == 0) return AnalysisResults{0, 0, 0};
+  return AnalysisResults{op_latency_sum / n,
+                         commit_latency_sum / n,
+                         apply_latency_sum / n};
 }
 
 void BuildBench(const BenchConfiguration &cfg, std::vector<KvPair> *bench) {

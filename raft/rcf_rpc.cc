@@ -102,7 +102,6 @@ void RCFRpcClient::sendMessage(const RequestVoteArgs &args) {
 
   ClientPtr client_ptr(
       new RcfClient<I_RaftRPCService>(RCF::TcpEndpoint(target_address_.ip, target_address_.port)));
-
   setMaxTransportLength(client_ptr);
 
   auto serializer = Serializer::NewSerializer();
@@ -118,9 +117,9 @@ void RCFRpcClient::sendMessage(const AppendEntriesArgs &args) {
   if (stopped_) {  // Directly return if this client is stopped
     return;
   }
+
   ClientPtr client_ptr(
       new RcfClient<I_RaftRPCService>(RCF::TcpEndpoint(target_address_.ip, target_address_.port)));
-
   setMaxTransportLength(client_ptr);
   client_ptr->getClientStubPtr()->setRemoteCallTimeoutMs(config::kRPCTimeout);
 
@@ -158,7 +157,6 @@ void RCFRpcClient::sendMessage(const RequestFragmentsArgs &args) {
 
   ClientPtr client_ptr(
       new RcfClient<I_RaftRPCService>(RCF::TcpEndpoint(target_address_.ip, target_address_.port)));
-
   setMaxTransportLength(client_ptr);
 
   auto serializer = Serializer::NewSerializer();

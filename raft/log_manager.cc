@@ -11,10 +11,10 @@
 namespace raft {
 // A default deleter that release dynamically allocated memory
 void default_Deleter(LogEntry *entry) {
-  // Memory for slices is now automatically managed by shared_ptr in the Slice class
-  // No need to manually delete slice data anymore
-
-  entry->~LogEntry();
+  // Release shared_ptr ownership by resetting to default state.
+  // Using assignment instead of explicit ~LogEntry() to avoid double-destructor
+  // when delete[] entries_ runs later in ensureCapacity or ~LogManager.
+  *entry = LogEntry{};
 }
 
 LogManager::LogManager(Storage *persister, int64_t initial_cap, Deleter deleter)

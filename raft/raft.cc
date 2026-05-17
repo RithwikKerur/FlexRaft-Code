@@ -64,6 +64,7 @@ RaftState *RaftState::NewRaftState(const RaftConfig &config) {
 
   ret->last_applied_ = 0;
   ret->commit_index_ = 0;
+  ret->alive_servers_of_last_point_ = 0;
 
   ret->PersistRaftState();
 
@@ -627,7 +628,7 @@ void RaftState::tryUpdateCommitIndex() {
         livenessLevel(), agree_cnt);
     // ---------------------------------------------------------------------------------
 
-    if (agree_cnt >= livenessLevel() &&
+    if (agree_cnt >= commit_require_k &&
         lm_->GetSingleLogEntry(N)->Term() == CurrentTerm()) {
       SetCommitIndex(N);
       // Index N is committed, no need to track them any more
@@ -1119,11 +1120,12 @@ bool RaftState::DecodingRaftEntry(Stripe *stripe, LogEntry *ent) {
   int not_encoded_size = stripe->collected_fragments[id].StartOffset();
   int complete_ent_size =
       not_encoded_size + (stripe->collected_fragments[id].FragmentSlice().size() * k);
+  int origin_size = stripe->collected_fragments[id].CommandLength();
 
-  LOG(util::kRaft, "S%d Estimate NotEncodeSize=%d CompleteSize=%d", id_, not_encoded_size,
-      complete_ent_size);
+  LOG(util::kRaft, "S%d Estimate NotEncodeSize=%d CompleteSize=%d OriginSize=%d", id_,
+      not_encoded_size, complete_ent_size, origin_size);
 
-  auto data = new char[complete_ent_size + 16];
+  auto data = new char[origin_size + 16];
   std::memcpy(data, stripe->collected_fragments[id].NotEncodedSlice().data(),
               stripe->collected_fragments[id].NotEncodedSlice().size());
     /*
@@ -1147,8 +1149,7 @@ bool RaftState::DecodingRaftEntry(Stripe *stripe, LogEntry *ent) {
     return false;
   }
   */
- //TODO implement Decode raft entry 
-  int origin_size = stripe->collected_fragments[id].CommandLength();
+ //TODO implement Decode raft entry
 
   ent->SetIndex(stripe->raft_index);
   ent->SetTerm(stripe->raft_term);
