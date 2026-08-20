@@ -26,7 +26,7 @@ struct Stripe {
 // RS erasure coding scheme
 class Encoder {
   static constexpr int kMaxK = 16;
-  static constexpr int kMaxM = 128;
+  static constexpr int kMaxM = 256;
 
   // The RS encoding process may require fragment length to be aligned. When
   // kAlignment = 1, there is no need to padding the alignment.

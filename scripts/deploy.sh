@@ -1,14 +1,15 @@
 #!/bin/bash
-# deploy.sh — Deploy FlexRaft on 4 DigitalOcean droplets
+# deploy.sh — Deploy eAID on 4 DigitalOcean droplets (run from anywhere; paths
+#             resolve relative to the repository root, not to this script)
 #
 # Usage:
-#   ./deploy.sh setup    — install deps, sync code, build on all droplets
-#   ./deploy.sh start    — generate cluster.conf and start servers
-#   ./deploy.sh bench    — run bench_client locally against the cluster
-#   ./deploy.sh stop     — kill servers on all droplets
-#   ./deploy.sh clean    — stop + wipe data directories
-#   ./deploy.sh status   — show running server processes on each droplet
-#   ./deploy.sh all      — setup + start + bench (full run)
+#   ./scripts/deploy.sh setup    — install deps, sync code, build on all droplets
+#   ./scripts/deploy.sh start    — generate cluster.conf and start servers
+#   ./scripts/deploy.sh bench    — run bench_client locally against the cluster
+#   ./scripts/deploy.sh stop     — kill servers on all droplets
+#   ./scripts/deploy.sh clean    — stop + wipe data directories
+#   ./scripts/deploy.sh status   — show running server processes on each droplet
+#   ./scripts/deploy.sh all      — setup + start + bench (full run)
 
 set -euo pipefail
 
@@ -45,11 +46,33 @@ WRITE_NUM=1000
 # ============================================================
 
 NUM_NODES=${#DROPLET_IPS[@]}
-LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Repository root — this script lives in scripts/, everything it syncs lives one level up
+LOCAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CLUSTER_CONF="$LOCAL_DIR/cluster.conf"
 SSH_OPTS="-i $SSH_KEY -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o BatchMode=yes"
 LOG_DIR="$LOCAL_DIR/deploy_logs"
 mkdir -p "$LOG_DIR"
+
+# Packages needed to build the codebase. libjerasure-dev/libgf-complete-dev are required by the
+# gf16_* targets in bench/CMakeLists.txt, which fail cmake configuration when they are missing.
+APT_PACKAGES="uuid-dev zlib1g-dev libbz2-dev liblz4-dev \
+    libsnappy-dev libzstd-dev libgflags-dev \
+    cmake librocksdb-dev libgtest-dev libisal-dev \
+    libjerasure-dev libgf-complete-dev build-essential"
+
+# Local-only artifacts that must never be pushed to the hosts
+RSYNC_EXCLUDES=(
+    --exclude='.git'
+    --exclude='build/'
+    --exclude='*.o'
+    --exclude='.venv/'
+    --exclude='data/'
+    --exclude='results/'
+    --exclude='deploy_logs/'
+    --exclude='raft_log*'
+    --exclude='*.log'
+    --exclude='cluster.conf'
+)
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 info()    { echo -e "${GREEN}[+]${NC} $*"; }
@@ -80,6 +103,27 @@ ssh_all() {
     return $failed
 }
 
+# Fail fast, and loudly, before any work is backgrounded into a log file
+check_prereqs() {
+    local missing=0
+    for tool in rsync ssh scp; do
+        if ! command -v "$tool" > /dev/null 2>&1; then
+            err "'$tool' is not installed locally (apt-get install -y rsync openssh-client)"
+            missing=1
+        fi
+    done
+    [[ $missing -eq 0 ]] || exit 1
+
+    if [[ ! -f "$SSH_KEY" ]]; then
+        err "SSH key not found: $SSH_KEY — set SSH_KEY at the top of this script."
+        exit 1
+    fi
+    if [[ ! -f "$LOCAL_DIR/Makefile" ]]; then
+        err "No Makefile under $LOCAL_DIR — LOCAL_DIR must point at the repository root."
+        exit 1
+    fi
+}
+
 check_ips() {
     for ip in "${DROPLET_IPS[@]}"; do
         if [[ "$ip" == "YOUR_DROPLET"* ]]; then
@@ -104,6 +148,7 @@ generate_conf() {
 
 cmd_setup() {
     check_ips
+    check_prereqs
     info "Setting up $NUM_NODES droplets in parallel..."
 
     local pids=()
@@ -112,20 +157,12 @@ cmd_setup() {
             local ip="${DROPLET_IPS[$i]}"
             echo "  [node $i] installing system packages..."
             ssh_cmd "$i" "apt-get update -qq && \
-                apt-get install -y -qq \
-                    uuid-dev zlib1g-dev libbz2-dev liblz4-dev \
-                    libsnappy-dev libzstd-dev libgflags-dev \
-                    cmake librocksdb-dev libgtest-dev libisal-dev \
-                    build-essential 2>&1 | tail -5"
+                apt-get install -y -qq $APT_PACKAGES 2>&1 | tail -5"
 
             echo "  [node $i] syncing codebase..."
             rsync -az --delete \
                 -e "ssh $SSH_OPTS" \
-                --exclude='.git' \
-                --exclude='build/' \
-                --exclude='*.o' \
-                --exclude='deploy_logs/' \
-                --exclude='cluster.conf' \
+                "${RSYNC_EXCLUDES[@]}" \
                 "$LOCAL_DIR/" \
                 "$SSH_USER@$ip:$REMOTE_DIR/"
 
@@ -156,18 +193,10 @@ cmd_setup() {
     info "Setting up client node ($CLIENT_IP)..."
     {
         ssh $SSH_OPTS "$SSH_USER@$CLIENT_IP" "apt-get update -qq && \
-            apt-get install -y -qq \
-                uuid-dev zlib1g-dev libbz2-dev liblz4-dev \
-                libsnappy-dev libzstd-dev libgflags-dev \
-                cmake librocksdb-dev libgtest-dev libisal-dev \
-                build-essential 2>&1 | tail -5"
+            apt-get install -y -qq $APT_PACKAGES 2>&1 | tail -5"
         rsync -az --delete \
             -e "ssh $SSH_OPTS" \
-            --exclude='.git' \
-            --exclude='build/' \
-            --exclude='*.o' \
-            --exclude='deploy_logs/' \
-            --exclude='cluster.conf' \
+            "${RSYNC_EXCLUDES[@]}" \
             "$LOCAL_DIR/" \
             "$SSH_USER@$CLIENT_IP:$REMOTE_DIR/"
         ssh $SSH_OPTS "$SSH_USER@$CLIENT_IP" "cd $REMOTE_DIR && CMAKE=cmake make release 2>&1 | tail -5"
